@@ -3,7 +3,6 @@
 // ansified, swap, rep and dup added wrtp 9/95
 // bugs, comments, etc to roger peppe (rog@ohm.york.ac.uk)
 // version 4 - Goifed, yeah!
-
 package main
 
 import (
