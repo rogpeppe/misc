@@ -6,18 +6,18 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
-	"os"
-	"bytes"
 	"strings"
 )
 
 type op struct {
 	name string
-	f   interface{}
+	f    interface{}
 }
 
 var ops = []op{
@@ -324,7 +324,7 @@ func push(v float64) {
 
 func pop() float64 {
 	v := stack[len(stack)-1]
-	stack = stack[0:len(stack)-1]
+	stack = stack[0 : len(stack)-1]
 	return v
 }
 
