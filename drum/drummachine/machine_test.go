@@ -36,14 +36,14 @@ var trackTests = []struct {
 		Beats: [drum.NumBeats]bool{},
 	},
 	beatDuration: 1,
-	expect:       []int64{maxInt64},
+	expect:       []int64{0x7fffffffffffffff},
 }}
 
 func TestTrack(t *testing.T) {
 	for i, test := range trackTests {
 		tr := newTrack(test.track, test.beatDuration)
 		for j, expect := range test.expect {
-			if got := tr.next(); got != expect {
+			if got := tr.Next(); got != expect {
 				t.Errorf("test %d; incorrect next time at step %d, got %d want %d", i, j, got, expect)
 			}
 		}
