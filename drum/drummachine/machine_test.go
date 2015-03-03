@@ -12,141 +12,50 @@ import (
 var trackTests = []struct {
 	track        drum.Track
 	beatDuration int64
-	nextAfter    int64
-	expect       int64
+	expect       []int64
 }{{
 	track: drum.Track{
 		Beats: [drum.NumBeats]bool{0: true},
 	},
 	beatDuration: 10,
-	nextAfter:    0,
-	expect:       0,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{0: true},
-	},
-	beatDuration: 10,
-	nextAfter:    1,
-	expect:       160,
+	expect:       []int64{0, 160, 320, 480},
 }, {
 	track: drum.Track{
 		Beats: [drum.NumBeats]bool{1: true},
 	},
 	beatDuration: 10,
-	nextAfter:    0,
-	expect:       10,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true},
-	},
-	beatDuration: 10,
-	nextAfter:    11,
-	expect:       170,
+	expect:       []int64{10, 170, 330},
 }, {
 	track: drum.Track{
 		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
 	},
-	beatDuration: 10,
-	nextAfter:    0,
-	expect:       10,
+	beatDuration: 1,
+	expect:       []int64{1, 5, 15, 17, 21, 31, 33},
 }, {
 	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
+		Beats: [drum.NumBeats]bool{},
 	},
-	beatDuration: 10,
-	nextAfter:    9,
-	expect:       10,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    10,
-	expect:       10,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    11,
-	expect:       50,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    50,
-	expect:       50,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    55,
-	expect:       150,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    150,
-	expect:       150,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    151,
-	expect:       170,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    165,
-	expect:       170,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    170,
-	expect:       170,
-}, {
-	track: drum.Track{
-		Beats: [drum.NumBeats]bool{1: true, 5: true, 15: true},
-	},
-	beatDuration: 10,
-	nextAfter:    171,
-	expect:       210,
+	beatDuration: 1,
+	expect:       []int64{maxInt64},
 }}
 
 func TestTrack(t *testing.T) {
-	samples := []audio.Sample{1, 2, 3}
 	for i, test := range trackTests {
-		tr := &track{
-			Track:        test.track,
-			beatDuration: test.beatDuration,
-			samples:      samples,
-		}
-		got, gotSamples := tr.nextAfter(test.nextAfter)
-		if got != test.expect {
-			t.Errorf("test %d: incorrect next time after %d, got %d, want %d", i, test.nextAfter, got, test.expect)
-		}
-		if &gotSamples[0] != &samples[0] {
-			t.Errorf("wrong samples returned")
+		tr := newTrack(test.track, test.beatDuration)
+		for j, expect := range test.expect {
+			if got := tr.next(); got != expect {
+				t.Errorf("test %d; incorrect next time at step %d, got %d want %d", i, j, got, expect)
+			}
 		}
 	}
 }
 
 var sequencerTests = []struct {
-	pattern            *drum.Pattern
-	patches            map[string][]audio.Sample
-	expectBeatDuration int64
-	expect             []audio.Sample
+	pattern *drum.Pattern
+	patches map[string][]audio.Sample
+	expect  []audio.Sample
 }{{
 	pattern: &drum.Pattern{
-		Tempo: 120,
 		Tracks: []drum.Track{{
 			Name:  "a",
 			Beats: [drum.NumBeats]bool{0: true},
@@ -159,7 +68,6 @@ var sequencerTests = []struct {
 		"a": []audio.Sample{20, 18, 16, 14, 12, 10, 8},
 		"b": []audio.Sample{21, 19, 15, 13, 11, 9, 7, 5},
 	},
-	expectBeatDuration: SampleRate / 2,
 	expect: []audio.Sample{
 		20, 18, 16, 14, 12,
 		10 + 21, 8 + 19, 15, 13, 11,
@@ -185,16 +93,11 @@ var sequencerTests = []struct {
 
 func TestSequencer(t *testing.T) {
 	for _, test := range sequencerTests {
-		proc, err := New(test.pattern, test.patches)
+		proc, err := newWithBeatDuration(test.pattern, test.patches, 5)
 		if err != nil {
 			t.Fatalf("cannot make processor: %v", err)
 		}
-		seq := proc.(*sequencer)
-		if got := getBeatDuration(seq); got != test.expectBeatDuration {
-			t.Errorf("unexpected beat duration, got %d want %d", got, test.expectBeatDuration)
-		}
 		// Set the beat duration to 5 samples so we can test easily
-		setBeatDuration(seq, 5)
 		for i := 0; i < len(test.expect); i += 5 {
 			out := make([]audio.Sample, 5)
 			proc.Process(out)
@@ -202,25 +105,6 @@ func TestSequencer(t *testing.T) {
 				t.Errorf("frame %d, got %v want %v", i/5, out, test.expect[i:i+5])
 			}
 		}
-	}
-}
-
-func getBeatDuration(seq *sequencer) int64 {
-	d := int64(-1)
-	for _, src := range seq.sources {
-		sd := src.(*track).beatDuration
-		if d == -1 {
-			d = sd
-		} else if sd != d {
-			panic("inconsistent beat duration in tracks")
-		}
-	}
-	return d
-}
-
-func setBeatDuration(seq *sequencer, d int64) {
-	for _, src := range seq.sources {
-		src.(*track).beatDuration = d
 	}
 }
 
