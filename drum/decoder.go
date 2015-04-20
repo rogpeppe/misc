@@ -56,8 +56,8 @@ func DecodeFile(path string) (*Pattern, error) {
 
 // The binary format is as follows:
 //
-// signature: "SPLICE" 13 bytes, zero padded
-// unknown: (0xc5 || 0x8f || 0x93 || 0x57)
+// signature: "SPLICE" 6 bytes.
+// size of rest of data (int64, big endian)
 // version: (string, 32 bytes, zero padded)
 // tempo: (float32, little endian), 4 bytes
 // tracks n * [
@@ -65,21 +65,12 @@ func DecodeFile(path string) (*Pattern, error) {
 //	trackname: (namelen(int8), string[len])
 //	beats: (0x0 | 0x1) * 4 * 4
 // ]
-//
-// When the version is 0.708-alpha, we can
-// have an apparently spurious SPLICE header
-// at the end of the tracks.
 
 const signature = "SPLICE"
 
-// spuriousChannelVal holds the value that a track's channel
-// will take when there's actually a "SPLICE" header
-// there instead.
-var spuriousChannelVal = int32(binary.LittleEndian.Uint32([]byte(signature[0:4])))
-
 type header struct {
-	Sig     [13]byte
-	Unknown byte
+	Sig [6]byte
+	Len [8]byte			// big-endian which conflicts with Tempo, so decode separately.
 	Version [32]byte
 	Tempo   float32
 }
@@ -96,9 +87,11 @@ func Decode(r io.Reader) (*Pattern, error) {
 	if err := binary.Read(r, binary.LittleEndian, &h); err != nil {
 		return nil, fmt.Errorf("cannot read header: %v", err)
 	}
-	if sig := unpad(h.Sig[:]); sig != signature {
+	if sig := string(h.Sig[:]); sig != signature {
 		return nil, fmt.Errorf("unexpected header, got %q, want %q", sig, signature)
 	}
+	length := int64(binary.BigEndian.Uint64(h.Len[:]))
+	r = io.LimitReader(r, length - int64(len(h.Version)) - 4)
 	var p Pattern
 	p.Version = unpad(h.Version[:])
 	if p.Version == "" {
@@ -115,11 +108,6 @@ func Decode(r io.Reader) (*Pattern, error) {
 		}
 		var t Track
 		t.Channel = int(chanh.Channel)
-		if p.Version == "0.708-alpha" && chanh.Channel == spuriousChannelVal && chanh.NameLen == 'C' {
-			// It appears that 0.708 can have spurious extra header
-			// and data tacked onto the end. We just ignore it for now.
-			return &p, nil
-		}
 		name := make([]byte, chanh.NameLen)
 		_, err := io.ReadFull(r, name)
 		if err != nil {
@@ -166,6 +154,7 @@ func (p *Pattern) MarshalBinary() ([]byte, error) {
 	var buf bytes.Buffer
 	var h header
 	copy(h.Sig[:], signature)
+	h.
 	h.Unknown = 0x57
 	if p.Version == "" {
 		copy(h.Version[:], defaultVersion)

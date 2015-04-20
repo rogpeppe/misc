@@ -21,10 +21,6 @@ type sequencer struct {
 
 	// t holds the current sample time.
 	t int64
-
-	// next holds the next time that any of the sources
-	// are scheduled to play something new.
-	next int64
 }
 
 // New returns a new sequencer module that sequences
