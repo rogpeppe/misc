@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
-	"gopkg.in/mgo.v2/txn"
 	"github.com/juju/juju/agent"
 	"github.com/juju/juju/mongo"
 	"github.com/juju/juju/state"
-	"github.com/kr/pretty"
-	flag "launchpad.net/gnuflag"
 	"github.com/juju/replicaset"
+	"github.com/kr/pretty"
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/txn"
+	flag "launchpad.net/gnuflag"
 )
 
 var nflag = flag.Bool("n", false, "print ops but don't actually change anything")
@@ -59,6 +59,9 @@ func setStateServers(ids []string) error {
 }
 
 func setStateServers0(ids []string, st *state.State, db *mgo.Database, runner *txn.Runner) error {
+	if len(ids)%2 == 0 || len(ids) == 0 {
+		return fmt.Errorf("number of state servers must be odd and greater than zero")
+	}
 	info, err := currentInfo(st, db)
 	if err != nil {
 		return err
@@ -111,7 +114,7 @@ func printReplicasetMembers(session *mgo.Session) error {
 	if err != nil {
 		return fmt.Errorf("cannot get replica set status: %v", err)
 	}
-	statuses := make(map[int] *replicaset.MemberStatus)
+	statuses := make(map[int]*replicaset.MemberStatus)
 	for i, status := range statusResult.Members {
 		statuses[status.Id] = &statusResult.Members[i]
 	}

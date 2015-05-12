@@ -2,7 +2,7 @@ package main
 
 import (
 	"testing"
-	
+
 	coretesting "github.com/juju/juju/testing"
 )
 

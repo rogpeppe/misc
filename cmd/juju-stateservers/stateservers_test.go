@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/juju/testing"
 	"gopkg.in/mgo.v2/txn"
-	"github.com/juju/juju/constraints"
 	gc "launchpad.net/gocheck"
 )
 
