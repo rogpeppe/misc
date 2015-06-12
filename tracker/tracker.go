@@ -1,21 +1,22 @@
 package tracker
+
 import (
 	"fmt"
 	"sync"
 	"os"
 	"time"
 
-	"local/runtime/debug"
+	"github.com/rogpeppe/misc/runtime/debug"
 )
 
 var (
 	trackedMu sync.Mutex
-	tracked = make(map[interface{}] *track)
+	tracked   = make(map[interface{}]*track)
 )
 
 type track struct {
-	x interface{}
-	closed bool
+	x       interface{}
+	closed  bool
 	allocBy []byte
 }
 
@@ -26,7 +27,7 @@ func Alloc(x interface{}) {
 		panic(fmt.Errorf("double alloc of %#v (originally allocated by %s)", x, t.allocBy))
 	}
 	tracked[x] = &track{
-		x: x,
+		x:       x,
 		allocBy: debug.Callers(1, 100),
 	}
 }
