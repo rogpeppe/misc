@@ -23,9 +23,11 @@ type templateArg struct {
 
 type templateOneCmdArg struct {
 	CmdNameLiteral string // e.g. list-something
-	CmdName        string // e.g. listsomething
+	CmdName        string // e.g. listSomething
 	*templateArg
 }
+
+var force = flag.Bool("f", false, "force overwrite of existing source files")
 
 func main() {
 	flag.Usage = func() {
@@ -97,6 +99,10 @@ func writeFile(arg interface{}, dir, file string, template *template.Template) {
 	data, err := format.Source(buf.Bytes())
 	if err != nil {
 		fail("invalid source generated for %s: %v", path, err)
+	}
+	if _, err := os.Stat(path); err == nil && !*force {
+		fmt.Printf("not overwriting %s\n", path)
+		return
 	}
 	if err := ioutil.WriteFile(path, data, 0777); err != nil {
 		fail("%v", err)
