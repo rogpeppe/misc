@@ -1,0 +1,108 @@
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"go/format"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
+	"text/template"
+	"time"
+)
+
+type templateArg struct {
+	CmdPackage string
+	Name       string
+	Year       int
+	Commands   []templateOneCmdArg
+}
+
+type templateOneCmdArg struct {
+	CmdNameLiteral string // e.g. list-something
+	CmdName        string // e.g. listsomething
+	*templateArg
+}
+
+func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: newjujuplugin <packagepath>/cmd/juju-<name> [cmd...]\n")
+		os.Exit(2)
+	}
+	flag.Parse()
+	if flag.NArg() < 1 {
+		flag.Usage()
+	}
+	cmdPackage := flag.Arg(0)
+	lastHyphen := strings.LastIndex(cmdPackage, "-")
+	if lastHyphen == -1 {
+		fail("package name in wrong form")
+	}
+	commands := flag.Args()[1:]
+	arg := &templateArg{
+		CmdPackage: flag.Arg(0),
+		Name:       cmdPackage[lastHyphen+1:],
+		Year:       time.Now().Year(),
+	}
+	for _, c := range commands {
+		arg.Commands = append(arg.Commands, templateOneCmdArg{
+			CmdNameLiteral: c,
+			CmdName:        fromLiteral(c),
+			templateArg:    arg,
+		})
+	}
+	gopath := os.Getenv("GOPATH")
+	if i := strings.Index(gopath, ":"); i > 0 {
+		gopath = gopath[0:i]
+	}
+	dir := filepath.Join(gopath, "src", filepath.FromSlash(cmdPackage))
+	writeFile(arg, dir, "main.go", mainTemplate)
+
+	cmdDir := filepath.Join(dir, arg.Name+"cmd")
+	writeFile(arg, cmdDir, "cmd.go", cmdTemplate)
+	writeFile(arg, cmdDir, "cmd_test.go", cmdtestTemplate)
+	writeFile(arg, cmdDir, "package_test.go", packagetestTemplate)
+
+	for _, c := range arg.Commands {
+		writeFile(c, cmdDir, c.CmdNameLiteral+".go", onecmdTemplate)
+		writeFile(c, cmdDir, c.CmdNameLiteral+"_test.go", onecmdtestTemplate)
+	}
+	fmt.Println(dir)
+}
+
+func fromLiteral(s string) string {
+	return strings.Replace(s, "-", "", -1)
+}
+
+var templateFuncs = template.FuncMap{
+	"fromLiteral": fromLiteral,
+}
+
+func newTemplate(s string) *template.Template {
+	return template.Must(template.New("").Funcs(templateFuncs).Parse(strings.TrimLeft(s, "\n")))
+}
+
+func writeFile(arg interface{}, dir, file string, template *template.Template) {
+	var buf bytes.Buffer
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		fail("%v", err)
+	}
+	if err := template.Execute(&buf, arg); err != nil {
+		fail("cannot execute template for %s: %v", file, err)
+	}
+	path := filepath.Join(dir, file)
+	data, err := format.Source(buf.Bytes())
+	if err != nil {
+		fail("invalid source generated for %s: %v", path, err)
+	}
+	if err := ioutil.WriteFile(path, data, 0777); err != nil {
+		fail("%v", err)
+	}
+}
+
+func fail(f string, a ...interface{}) {
+	fmt.Fprintf(os.Stderr, "%s\n", fmt.Sprintf(f, a...))
+	os.Exit(1)
+}
