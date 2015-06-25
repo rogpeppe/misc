@@ -1,3 +1,5 @@
+// The newjujuplugin command generates a skeleton for a multi-command
+// juju plugin.
 package main
 
 import (
