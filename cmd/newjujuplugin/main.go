@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 )
 
 type templateArg struct {
@@ -73,7 +74,7 @@ func main() {
 }
 
 func fromLiteral(s string) string {
-	return strings.Replace(s, "-", "", -1)
+	return toCamelCase(s)
 }
 
 var templateFuncs = template.FuncMap{
@@ -105,4 +106,24 @@ func writeFile(arg interface{}, dir, file string, template *template.Template) {
 func fail(f string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, "%s\n", fmt.Sprintf(f, a...))
 	os.Exit(1)
+}
+
+func toCamelCase(s string) (r string) {
+	if s == "" {
+		return s
+	}
+	wasHyphen := false
+	var out []rune
+	for _, r := range s {
+		if r == '-' {
+			wasHyphen = true
+			continue
+		}
+		if wasHyphen {
+			r = unicode.ToUpper(r)
+		}
+		out = append(out, r)
+		wasHyphen = false
+	}
+	return string(out)
 }
