@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/juju/juju/constraints"
 	"github.com/juju/juju/juju/osenv"
@@ -23,10 +25,6 @@ var verify = flag.Bool("v", false, "verify the bundle after conversion")
 func main() {
 	flag.Parse()
 	bundleName := flag.Arg(0)
-	if bundleName == "" {
-		fmt.Fprintf(os.Stderr, "which bundle?\n")
-		os.Exit(2)
-	}
 	setCacheDir()
 	data, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
@@ -38,9 +36,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bd := bundles[bundleName]
-	if bd == nil {
-		log.Fatal("bundle %q not found in bundle", bundleName)
+	if len(bundles) != 1 && bundleName == "" {
+		var names []string
+		for name := range bundles {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		log.Fatal("bundle name argument required (available bundles: %v)", strings.Join(names, " "))
+	}
+	var bd *charm.BundleData
+	if bundleName != "" {
+		bd := bundles[bundleName]
+		if bd == nil {
+			log.Fatal("bundle %q not found in bundle", bundleName)
+		}
+	} else {
+		for _, b := range bundles {
+			bd = b
+		}
 	}
 	if !*verify {
 		return
