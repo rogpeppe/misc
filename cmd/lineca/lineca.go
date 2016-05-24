@@ -22,12 +22,16 @@ var (
 )
 
 
-var usage = `usage: onedca [flags] rules
+var usage = `usage: lineca [flags] rules
 
 The rule is specified as a base-n (n is number of states) number, 
 where the n'th digit (with the least significant digit as 0)
 gives the next state of a cell whose neighbourhood cells
 sum to n.
+
+For example:
+
+	lineca 3311100320
 `
 
 func main() {
