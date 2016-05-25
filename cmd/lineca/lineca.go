@@ -4,23 +4,23 @@
 //
 //	http://www.meetup.com/Golang-North-East/events/231080137/
 package main
+
 import (
-	"time"
-	"os"
-	"fmt"
 	"flag"
-	"log"
+	"fmt"
 	"github.com/rogpeppe/misc/linedrawer"
+	"log"
 	"math/rand"
+	"os"
+	"time"
 )
 
 var (
-	sleepTime = flag.Duration("t", 500 * time.Microsecond, "time to sleep between generating each row")
+	sleepTime  = flag.Duration("t", 500*time.Microsecond, "time to sleep between generating each row")
 	cellRadius = flag.Int("r", 1, "radius - number of cells either side to consider")
-	numStates = flag.Int("s", 0, "number of states (defaults to one more than largest value provided")
-	numCells = flag.Int("n", 1000, "number of cells")
+	numStates  = flag.Int("s", 0, "number of states (defaults to one more than largest value provided")
+	numCells   = flag.Int("n", 1000, "number of cells")
 )
-
 
 var usage = `usage: lineca [flags] rules
 
@@ -32,6 +32,7 @@ sum to n.
 For example:
 
 	lineca 3311100320
+	lineca 3311200320
 `
 
 func main() {
@@ -48,28 +49,30 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	d, err := linedrawer.New(*numCells, 4)
-	if err != nil {
-		log.Fatal(err)
-	}
-	ca := &ca{
-		r: *cellRadius,
-		n: *numCells,
-		next: next,
-		c0: make([]int, *numCells),
-		c1: make([]int, *numCells),
-	}
-	for i := range ca.c0 {
-		ca.c0[i] = rand.Intn(4)
-	}
-	for i := 0; ; i++ {
-		d.DrawLine(ca.c0)
-		ca.step()
-		if *sleepTime != 0 {
-			time.Sleep(*sleepTime)
+	linedrawer.Main(func(newLineDrawer linedrawer.NewFunc) {
+		d, err := newLineDrawer(*numCells, 4)
+		if err != nil {
+			log.Fatal(err)
 		}
-	}
-	select{}
+		ca := &ca{
+			r:    *cellRadius,
+			n:    *numCells,
+			next: next,
+			c0:   make([]int, *numCells),
+			c1:   make([]int, *numCells),
+		}
+		for i := range ca.c0 {
+			ca.c0[i] = rand.Intn(4)
+		}
+		for i := 0; ; i++ {
+			d.DrawLine(ca.c0)
+			ca.step()
+			if *sleepTime != 0 {
+				time.Sleep(*sleepTime)
+			}
+		}
+	})
+	select {}
 }
 
 func parseRule(s string, radius int, numStates int) ([]int, error) {
@@ -78,7 +81,7 @@ func parseRule(s string, radius int, numStates int) ([]int, error) {
 	}
 	r := make([]int, len(s))
 	max := 0
-	
+
 	for i, c := range s {
 		if c < '0' || c > '9' {
 			return nil, fmt.Errorf("non-digit state value '%c' in ruleset", c)
@@ -94,10 +97,10 @@ func parseRule(s string, radius int, numStates int) ([]int, error) {
 	} else if max >= numStates {
 		return nil, fmt.Errorf("cell state out of range")
 	}
-	maxVal := (numStates - 1) * (radius * 2 + 1)
-	rule := make([]int, maxVal + 1)
+	maxVal := (numStates - 1) * (radius*2 + 1)
+	rule := make([]int, maxVal+1)
 	if len(r) > len(rule) {
-		return nil, fmt.Errorf("too many states specified (need %d)", maxVal + 1)
+		return nil, fmt.Errorf("too many states specified (need %d)", maxVal+1)
 	}
 	j := 0
 	for i := len(r) - 1; i >= 0; i-- {
@@ -108,17 +111,17 @@ func parseRule(s string, radius int, numStates int) ([]int, error) {
 }
 
 type ca struct {
-	r int
-	n int
-	next []int
+	r      int
+	n      int
+	next   []int
 	c0, c1 []int
 }
 
 func (c *ca) step() {
 	for i := range c.c1 {
 		sum := 0
-		for j := i - c.r; j <= i + c.r; j++ {
-			sum += c.c0[(j + c.n) % c.n]
+		for j := i - c.r; j <= i+c.r; j++ {
+			sum += c.c0[(j+c.n)%c.n]
 		}
 		c.c1[i] = c.next[sum]
 	}

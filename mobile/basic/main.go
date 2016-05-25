@@ -120,6 +120,10 @@ func onStart(glctx gl.Context) {
 		log.Printf("error creating GL program: %v", err)
 		return
 	}
+	for i := uint32(0); i < 5; i++ {
+		name, size, ty := glctx.GetActiveUniform(program, i)
+		log.Printf("name: %s; size: %d; ty: %s", name, size, ty)
+	}
 
 	buf = glctx.CreateBuffer()
 	glctx.BindBuffer(gl.ARRAY_BUFFER, buf)
@@ -146,11 +150,7 @@ func onPaint(glctx gl.Context, sz size.Event) {
 
 	glctx.UseProgram(program)
 
-	green += 0.01
-	if green > 1 {
-		green = 0
-	}
-	glctx.Uniform4f(color, 0, green, 0, 1)
+	glctx.Uniform4f(color, 1,1,1, 1)
 
 	touchPt := state.currentTouch()
 	glctx.Uniform2f(offset, touchPt.x/float32(sz.WidthPx), touchPt.y/float32(sz.HeightPx))
@@ -190,7 +190,9 @@ const fragmentShader = `#version 100
 precision mediump float;
 uniform vec4 color;
 void main() {
-	gl_FragColor = color;
+	vec2 p = gl_PointCoord;
+	vec4 finalColor = vec4(color.r * p.x, color.g * p.y, color.b, color.a);
+	gl_FragColor = finalColor;
 }`
 
 type point struct {

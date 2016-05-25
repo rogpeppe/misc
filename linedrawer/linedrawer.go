@@ -49,19 +49,8 @@ func setLogging(on bool) {
 	logMu.Unlock()
 }
 
-type drawer struct {
-	numCells  int
-	numStates int
-
-	paintNotifier paintNotifier
-	mu            sync.Mutex
-	row0          int // index of first row
-	rows          [][]int
-}
-
 const (
-	backgroundColor = colorWhite
-	tickDuration    = time.Second / 30
+	tickDuration = time.Second / 30
 )
 
 var colors = []color.RGBA{
@@ -71,53 +60,26 @@ var colors = []color.RGBA{
 	colorOrange.rgba(),
 }
 
-func New(numCells, numStates int) (LineDrawer, error) {
-	if numStates > len(colors) {
-		return nil, errgo.Newf("too many states for available colors")
-	}
-	d := &drawer{
-		numCells:  numCells,
-		numStates: numStates,
-	}
-	ch := make(chan error)
-	go driver.Main(func(s screen.Screen) {
-		w, err := s.NewWindow(nil)
-		ch <- err
-		if err != nil {
-			return
-		}
-		defer w.Release()
-		dp := &drawerProc{
+type NewFunc func(numCells, numStates int) (LineDrawer, error)
+
+func Main(f func(NewFunc)) {
+	driver.Main(func(s screen.Screen) {
+		ctxt := context{
 			screen: s,
-			win:    w,
-			drawer: d,
 		}
-		dp.drawer.paintNotifier.setQueue(w)
-		go dp.drawer.paintNotifier.run()
-		dp.main()
-		// TODO better than this.
-		os.Exit(0)
+		f(ctxt.new)
 	})
-	if err := <-ch; err != nil {
-		return nil, err
-	}
-	return d, nil
 }
 
-func (d *drawer) DrawLine(cells []int) {
-	if len(cells) != d.numCells {
-		panic("unexpected cell count")
-	}
-	cells1 := make([]int, len(cells))
-	copy(cells1, cells)
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.rows = append(d.rows, cells1)
-	d.paintNotifier.changed()
-}
+type drawer struct {
+	numCells  int
+	numStates int
 
-type drawerProc struct {
-	drawer *drawer
+	paintNotifier paintNotifier
+	mu            sync.Mutex
+	row0          int // index of first row
+	rows          [][]int
+
 	screen screen.Screen
 	win    screen.Window
 
@@ -141,9 +103,6 @@ type drawerProc struct {
 	// buf0 and buf1 hold the displayed pixels.
 	buf0, buf1 screen.Texture
 
-	// background holds a window's worth of the background color.
-	background screen.Texture
-
 	// bufp0 holds the first buffered row number.
 	// This is stored in the top row of buf0.
 	bufp0 int
@@ -154,6 +113,47 @@ type drawerProc struct {
 
 	// cellWidth holds the width of a cell in pixels.
 	cellWidth float32
+}
+
+type context struct {
+	screen screen.Screen
+}
+
+func (ctxt *context) new(numCells, numStates int) (LineDrawer, error) {
+	if numStates > len(colors) {
+		return nil, errgo.Newf("too many states for available colors")
+	}
+	w, err := ctxt.screen.NewWindow(nil)
+	if err != nil {
+		return nil, err
+	}
+	d := &drawer{
+		screen: ctxt.screen,
+		win:    w,
+
+		numCells:  numCells,
+		numStates: numStates,
+	}
+	d.paintNotifier.setQueue(w)
+	go d.paintNotifier.run()
+	go func() {
+		d.main()
+		os.Exit(0)
+		// TODO better than this
+	}()
+	return d, nil
+}
+
+func (d *drawer) DrawLine(cells []int) {
+	if len(cells) != d.numCells {
+		panic("unexpected cell count")
+	}
+	cells1 := make([]int, len(cells))
+	copy(cells1, cells)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.rows = append(d.rows, cells1)
+	d.paintNotifier.changed()
 }
 
 type paintNotifier struct {
@@ -196,7 +196,7 @@ func (p *paintNotifier) painted() {
 	p.paintedGeneration = p.generation
 }
 
-func (d *drawerProc) main() {
+func (d *drawer) main() {
 	paused := false
 	logging := false
 	for {
@@ -226,7 +226,7 @@ func (d *drawerProc) main() {
 			}
 			d.paint()
 			d.win.Publish()
-			d.drawer.paintNotifier.painted()
+			d.paintNotifier.painted()
 
 		case size.Event:
 			// Fit all the cells exactly across the screen using square cells.
@@ -244,8 +244,8 @@ type releaser interface {
 	Release()
 }
 
-func (d *drawerProc) setSize(e size.Event) (err error) {
-	cellWidth := float32(e.WidthPx) / float32(d.drawer.numCells)
+func (d *drawer) setSize(e size.Event) (err error) {
+	cellWidth := float32(e.WidthPx) / float32(d.numCells)
 	releaseOnError := func(r releaser) {
 		if err != nil {
 			r.Release()
@@ -253,26 +253,19 @@ func (d *drawerProc) setSize(e size.Event) (err error) {
 	}
 
 	numRows := int(float32(e.HeightPx)/cellWidth + 1) // Plus one for luck.
-	buf0, err := d.screen.NewTexture(image.Point{d.drawer.numCells, numRows})
+	buf0, err := d.screen.NewTexture(image.Point{d.numCells, numRows})
 	if err != nil {
 		return errgo.Notef(err, "cannot allocate texture 0")
 	}
 	defer releaseOnError(buf0)
 
-	buf1, err := d.screen.NewTexture(image.Point{d.drawer.numCells, numRows})
+	buf1, err := d.screen.NewTexture(image.Point{d.numCells, numRows})
 	if err != nil {
 		return errgo.Notef(err, "cannot allocate texture 1")
 	}
 	defer releaseOnError(buf1)
 
-	bg, err := d.screen.NewTexture(image.Pt(e.WidthPx, e.HeightPx))
-	if err != nil {
-		return errgo.Notef(err, "cannot allocate background texture")
-	}
-	defer releaseOnError(bg)
-	bg.Fill(bg.Bounds(), backgroundColor, draw.Src)
-
-	scratch, err := d.screen.NewBuffer(image.Point{d.drawer.numCells, numRows})
+	scratch, err := d.screen.NewBuffer(image.Point{d.numCells, numRows})
 	if err != nil {
 		return errgo.Notef(err, "cannot allocate buffer")
 	}
@@ -280,7 +273,6 @@ func (d *drawerProc) setSize(e size.Event) (err error) {
 	d.cellWidth = cellWidth
 	d.buf0 = buf0
 	d.buf1 = buf1
-	d.background = bg
 	d.numRows = numRows
 	d.scratch = scratch
 	d.bufp0 = 0
@@ -290,15 +282,13 @@ func (d *drawerProc) setSize(e size.Event) (err error) {
 	return nil
 }
 
-func (d *drawerProc) paint() {
+func (d *drawer) paint() {
 	if d.size.WidthPx == 0 || d.size.HeightPx == 0 {
 		logf("draw with no size set")
 		return
 	}
 	d.fillBuffers()
 	logf("after fillBuffers, bufp %d %d", d.bufp0, d.bufp1)
-	// Start by filling in the background color.
-	//	d.win.Copy(image.ZP, d.background, image.Rect(0, 0, d.size.WidthPx, d.size.HeightPx), draw.Src, nil)
 
 	if d.bufp1 <= d.rowDisplay {
 		// No rows to display.
@@ -318,14 +308,14 @@ func (d *drawerProc) paint() {
 	)
 	logf("r0 %v from %v", r0, image.Rect(
 		0, d.rowDisplay-d.bufp0,
-		d.drawer.numCells, min(d.bufp1, d.bufp0+d.numRows)-d.bufp0,
+		d.numCells, min(d.bufp1, d.bufp0+d.numRows)-d.bufp0,
 	))
 	d.win.Scale(
 		r0,
 		d.buf0,
 		image.Rect(
 			0, d.rowDisplay-d.bufp0,
-			d.drawer.numCells, min(d.bufp1, d.bufp0+d.numRows)-d.bufp0,
+			d.numCells, min(d.bufp1, d.bufp0+d.numRows)-d.bufp0,
 		),
 		draw.Over,
 		nil,
@@ -345,32 +335,32 @@ func (d *drawerProc) paint() {
 	)
 	logf("r1 %v from %v", r1, image.Rect(
 		0, 0,
-		d.drawer.numCells, numRows1,
+		d.numCells, numRows1,
 	))
 	d.win.Scale(
 		r1,
 		d.buf1,
 		image.Rect(
 			0, 0,
-			d.drawer.numCells, numRows1,
+			d.numCells, numRows1,
 		),
 		draw.Over,
 		nil,
 	)
 }
 
-func (d *drawerProc) fillBuffers() {
-	d.drawer.mu.Lock()
-	defer d.drawer.mu.Unlock()
+func (d *drawer) fillBuffers() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-	if len(d.drawer.rows) > d.numRows {
-		extra := len(d.drawer.rows) - d.numRows
-		d.drawer.rows = d.drawer.rows[extra:]
-		d.drawer.row0 += extra
+	if len(d.rows) > d.numRows {
+		extra := len(d.rows) - d.numRows
+		d.rows = d.rows[extra:]
+		d.row0 += extra
 	}
-	d.rowDisplay = d.drawer.row0
-	row1 := d.drawer.row0 + len(d.drawer.rows)
-	logf("filling buffers; rows %d %d; bufp %d %d; display rows %d", d.drawer.row0, row1, d.bufp0, d.bufp1, d.numRows)
+	d.rowDisplay = d.row0
+	row1 := d.row0 + len(d.rows)
+	logf("filling buffers; rows %d %d; bufp %d %d; display rows %d", d.row0, row1, d.bufp0, d.bufp1, d.numRows)
 
 	// [dp0, dp1] holds the set of rows we need to display.
 	dp0, dp1 := d.rowDisplay, d.rowDisplay+d.numRows
@@ -416,10 +406,10 @@ func (d *drawerProc) fillBuffers() {
 	//	draw.Op.Draw(rgba,
 
 	for row := fillp0; row < fillp1; row++ {
-		//		logf("fill row %d (offset %d) %v", row, row-fillp0, d.drawer.rows[row - d.drawer.row0])
+		//		logf("fill row %d (offset %d) %v", row, row-fillp0, d.rows[row - d.row0])
 		off := rgba.PixOffset(0, row-fillp0)
-		pix := rgba.Pix[off : off+4*d.drawer.numCells]
-		d.fillRow(pix, d.drawer.rows[row-d.drawer.row0])
+		pix := rgba.Pix[off : off+4*d.numCells]
+		d.fillRow(pix, d.rows[row-d.row0])
 	}
 	// boundary holds the offset of the first row in buf1.
 	boundary := d.bufp0 + d.numRows
@@ -429,8 +419,8 @@ func (d *drawerProc) fillBuffers() {
 		// Upload the first batch of rows.
 		// b0 and b1 hold the destination y range in buf0.
 		b0, b1 := fillp0-d.bufp0, r1-d.bufp0
-		logf("upload 0 to %d from %v", b0, image.Rect(0, 0, d.drawer.numCells, b1-b0))
-		d.buf0.Upload(image.Pt(0, b0), d.scratch, image.Rect(0, 0, d.drawer.numCells, b1-b0))
+		logf("upload 0 to %d from %v", b0, image.Rect(0, 0, d.numCells, b1-b0))
+		d.buf0.Upload(image.Pt(0, b0), d.scratch, image.Rect(0, 0, d.numCells, b1-b0))
 		copied = b1 - b0
 	}
 
@@ -444,15 +434,15 @@ func (d *drawerProc) fillBuffers() {
 			b0 = 0
 		}
 		b1 := fillp1 - boundary
-		logf("upload 1 to %d from %v", b0, image.Rect(0, copied, d.drawer.numCells, b1-b0+copied))
-		d.buf1.Upload(image.Pt(0, b0), d.scratch, image.Rect(0, copied, d.drawer.numCells, b1-b0+copied))
+		logf("upload 1 to %d from %v", b0, image.Rect(0, copied, d.numCells, b1-b0+copied))
+		d.buf1.Upload(image.Pt(0, b0), d.scratch, image.Rect(0, copied, d.numCells, b1-b0+copied))
 	}
 	d.bufp1 = dp1
 }
 
-func (d *drawerProc) fillRow(pix []byte, cells []int) {
+func (d *drawer) fillRow(pix []byte, cells []int) {
 	for i, c := range cells {
-		if c < 0 || c >= d.drawer.numStates {
+		if c < 0 || c >= d.numStates {
 			panic("cell value out of range")
 		}
 		rgb := colors[c]

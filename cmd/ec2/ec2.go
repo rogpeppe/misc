@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"gopkg.in/amz.v3/aws"
 	"gopkg.in/amz.v3/ec2"
+	"gopkg.in/errgo.v1"
 	"os"
 	"regexp"
 	"strings"
+	
+	"github.com/juju/utils/parallel"
 )
 
 type cmd struct {
@@ -197,21 +200,25 @@ func init() {
 }
 
 func delgroup(c cmd, conn *ec2.EC2, args []string) {
-	hasError := false
+	run := parallel.NewRun(40)
 	for _, g := range args {
-		var ec2g ec2.SecurityGroup
-		if secGroupPat.MatchString(g) {
-			ec2g.Id = g
-		} else {
-			ec2g.Name = g
-		}
-		_, err := conn.DeleteSecurityGroup(ec2g)
-		if err != nil {
-			errorf("cannot delete %q: %v", g, err)
-			hasError = true
-		}
+		g := g
+		run.Do(func() error {
+			var ec2g ec2.SecurityGroup
+			if secGroupPat.MatchString(g) {
+				ec2g.Id = g
+			} else {
+				ec2g.Name = g
+			}
+			_, err := conn.DeleteSecurityGroup(ec2g)
+			if err != nil {
+				errorf("cannot delete %q: %v", g, err)
+				return errgo.Newf("error")
+			}
+			return nil
+		})
 	}
-	if hasError {
+	if run.Wait() != nil {
 		os.Exit(1)
 	}
 }
