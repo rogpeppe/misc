@@ -24,7 +24,7 @@ var htmlTmpl = `
 <head>
 <style>
 	body {
-		font-family: Ubuntu-light, sans-serif;
+		font-family: Ubuntu Light, sans-serif;
 		padding: 25px;
 	}
 	h2 a {
