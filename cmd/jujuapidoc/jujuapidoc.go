@@ -13,7 +13,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	_ "github.com/juju/juju/apiserver"
+	"github.com/juju/juju/apiserver"
 	"github.com/juju/juju/apiserver/common"
 	"github.com/juju/juju/rpc/rpcreflect"
 	"github.com/rogpeppe/apicompat/jsontypes"
@@ -62,7 +62,9 @@ func generateInfo() (*apidoc.Info, error) {
 	}
 
 	info := jsontypes.NewInfo()
-	for _, d := range common.Facades.ListDetails() {
+	ds := common.Facades.ListDetails()
+	ds = append(ds, apiserver.AdminFacadeDetails()...)
+	for _, d := range ds {
 		t := rpcreflect.ObjTypeOf(d.Type)
 
 		for _, name := range t.MethodNames() {
@@ -78,7 +80,7 @@ func generateInfo() (*apidoc.Info, error) {
 	apiInfo := &apidoc.Info{
 		TypeInfo: info,
 	}
-	for _, d := range common.Facades.ListDetails() {
+	for _, d := range ds {
 		f := apidoc.FacadeInfo{
 			Name:    d.Name,
 			Version: d.Version,
