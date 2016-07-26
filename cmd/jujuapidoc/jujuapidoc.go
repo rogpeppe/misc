@@ -249,35 +249,4 @@ func progType(prog *loader.Program, t reflect.Type) (*types.TypeName, error) {
 	return objTypeName, nil
 }
 
-// in github.com/juju/juju/apiserver/common
-//
-//package common
-//
-//type FacadeDetails struct {
-//	Name string
-//	Version int
-//	Factory interface{}
-//	Type reflect.Type
-//	Feature string
-//}
-//
-//func (f *FacadeRegistry) ListDetails() []FacadeDetails {
-//	names := make([]string, 0, len(f.facades))
-//	for name := range f.facades {
-//		names = append(names, name)
-//	}
-//	sort.Strings(names)
-//	var details []FacadeDetails
-//	for _, name := range names {
-//		for v, info := range f.facades[name] {
-//			details = append(details, FacadeDetails{
-//				Name: name,
-//				Version: v,
-//				Factory: info.factory,
-//				Type: info.facadeType,
-//				Feature: info.feature,
-//			})
-//		}
-//	}
-//	return details
-//}
+// see github.com/rogpeppe/juju 076-apiserver-facade-list-details
