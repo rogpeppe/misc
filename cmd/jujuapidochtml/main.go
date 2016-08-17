@@ -73,6 +73,35 @@ var htmlTmpl = `
 </html>
 `
 
+var clientFacades = map[string]bool{
+	"Action": true,
+	"AllModelWatcher": true,
+	"AllWatcher": true,
+	"Annotations": true,
+	"Application": true,
+	"Backups": true,
+	"Block": true,
+	"Charms": true,
+	"Client": true,
+	"Cloud": true,
+	"Controller": true,
+	"HighAvailability": true,
+	"ImageManager": true,
+	"ImageMetadata": true,
+	"KeyManager": true,
+	"MachineManager": true,
+	"MetricsDebug": true,
+	"ModelConfig": true,
+	"ModelManager": true,
+	"Pinger": true,
+	"Spaces": true,
+	"SSHClient": true,
+	"Storage": true,
+	"Subnets": true,
+	"UserManager": true,
+	"Admin": true,
+}
+
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: jujuapidochtml api.json\n")
@@ -92,6 +121,20 @@ func main() {
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Fatal(err)
 	}
+	facades := make([]apidoc.FacadeInfo, 0, len(info.Facades))
+	for _, f := range info.Facades {
+		if !clientFacades[f.Name] {
+			facades = append(facades, f)
+		}
+	}
+	info.Facades = facades
+//	c := 0
+//	for _, f := range info.Facades {
+//		c += len(f.Methods)
+//	}
+//	fmt.Println(c)
+//	return
+
 	t, err := template.New("").Funcs(tmplFuncs).Parse(htmlTmpl)
 	if err != nil {
 		log.Fatal(err)
