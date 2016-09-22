@@ -5,6 +5,8 @@ package jujuconn
 import (
 	"sync"
 
+	"gopkg.in/macaroon-bakery.v1/httpbakery"
+	"github.com/juju/persistent-cookiejar"
 	"github.com/juju/errors"
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/juju"
@@ -12,8 +14,10 @@ import (
 	"github.com/juju/utils"
 )
 
-var initOnce sync.Once
-var initError error
+var (
+	initOnce sync.Once
+	initError error
+)
 
 // DialModel makes an API connection to the given controller
 // and model names. If the controller name is empty,
@@ -80,14 +84,25 @@ func DialController(controller string) (api.Connection, error) {
 
 func dial(store jujuclient.ClientStore, controller, modelUUID string) (api.Connection, error) {
 	acct, err := store.AccountDetails(controller)
-	if err != nil {
+	if err != nil && !errors.IsNotFound(err) {
 		return nil, errors.Annotatef(err, "cannot get account for controller %q", controller)
 	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	bclient := httpbakery.NewClient()
+	bclient.Jar = jar
+	bclient.VisitWebPage = httpbakery.OpenWebBrowser
+
+	dialOpts := api.DefaultDialOpts()
+	dialOpts.BakeryClient = bclient
+	
 	c, err := juju.NewAPIConnection(juju.NewAPIConnectionParams{
 		ControllerName: controller,
 		Store:          store,
 		OpenAPI:        api.Open,
-		DialOpts:       api.DefaultDialOpts(),
+		DialOpts:       dialOpts,
 		AccountDetails: acct,
 		ModelUUID:      modelUUID,
 	})
