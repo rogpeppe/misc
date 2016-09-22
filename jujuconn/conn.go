@@ -5,17 +5,17 @@ package jujuconn
 import (
 	"sync"
 
-	"gopkg.in/macaroon-bakery.v1/httpbakery"
-	"github.com/juju/persistent-cookiejar"
 	"github.com/juju/errors"
 	"github.com/juju/juju/api"
 	"github.com/juju/juju/juju"
 	"github.com/juju/juju/jujuclient"
+	"github.com/juju/persistent-cookiejar"
 	"github.com/juju/utils"
+	"gopkg.in/macaroon-bakery.v1/httpbakery"
 )
 
 var (
-	initOnce sync.Once
+	initOnce  sync.Once
 	initError error
 )
 
@@ -97,7 +97,7 @@ func dial(store jujuclient.ClientStore, controller, modelUUID string) (api.Conne
 
 	dialOpts := api.DefaultDialOpts()
 	dialOpts.BakeryClient = bclient
-	
+
 	c, err := juju.NewAPIConnection(juju.NewAPIConnectionParams{
 		ControllerName: controller,
 		Store:          store,
