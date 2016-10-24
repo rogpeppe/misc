@@ -1,15 +1,90 @@
 // Package auth defines a structured way of authorizing access to a service.
 //
-// It relies on a third party to authenticate users and define group membership.
+// It relies on a third party (the identity service)
+// to authenticate users and define group membership.
 //
 // When a user has authenticated themselves, they are allowed to obtain
 // short-term capabilities that can be passed around so that third parties
 // can act on their behalf.
+//
+// Users, groups, ACLs and entities
+//
+// A user represents some authenticated user. The nature of that
+// authentication is not part of the scope of this package, but at the
+// least each user has an id (the same each time a given user connects)
+// and a domain that defines the name space within which the id lives.
+///
+// A group represents some collection of users. It is possible to find
+// out whether a user is a member of a group, but not necessarily to
+// find out all users that are part of the group. Groups live in the
+// same name space as users - in general every user is a group with at
+// least one member: itself.
+//
+// An ACL defines an access control list - a set of users and groups,
+// any one of whom may access something. A user will be allowed to
+// something protected by an ACL if the user is a member of any of the
+// members of the ACL.
+//
+// An entity holds something in a service that is subject to
+// authorization control. Every entity has a name that's defines it -
+// every service will define its own set of entities. No service-defined
+// entity should start with the prefixes "login" or "multi-" - these are
+// reserved for internal use only.
+//
+// Operations, authorization and capabilities
+//
+// An operation defines some requested action on an entity. For example,
+// a file system server might define an entity for every file in the
+// server. In this case the entity name might be the file's path and the
+// action might be one of "read", "write". The exact set of entities and
+// actions is up to the caller, but should be kept stable over time
+// because authorization tokens will contain these names.
+//
+// To authorize some request on behalf of a remote user, first find out
+// what operations that request needs to perform. For example, if the
+// user tries to delete a file, the entity might be the path to the
+// file's directory and the action might be "write". It may often be
+// possible to determine the operations required by a request without
+// reference to anything external, when the request itself contains all
+// the necessary information.
+//
+// The primary way of authorizing is by authentication. If a client can
+// prove their identity, then Authorize can check whether they're a
+// member of an ACL. If the client can't prove their identity, Authorize
+// will return a macaroon that can be used to do so. This is known as an
+// "authentication" macaroon and should not in general be passed to
+// third parties because it can be used to perform any operation that
+// the user is alowed.
+//
+// If a user is allowed to perform a set of operations, that user may
+// also request a "capability" macaroon that can be used to perform
+// those operations for a limited period of time. This differs from the
+// authentication macaroon in that it authorizes the operations
+// implicitly without the need for authentication, so can be passed to
+// third parties to act on the user's behalf.
+//
+// Capabilities may be combined for authorization, so a request that
+// involves several operations may be authorized by a set of
+// capabilities that authorize all the operations between them, even
+// though no single one is sufficient. Note that because a capability
+// may be created for any set of operations that can be authorized, this
+// means we can combine several capabilities into a single capability
+// with the the capabilities of all.
+//
+// Third party caveats
+//
+// Sometimes just a set of operations is not sufficient to determine
+// whether the user should be granted access to an entity. For example,
+// we might need the user to verify something about the entity with some
+// third party.
+//
+// This is why there is a caveats argument to Authorize and Capability.
+// If a third party caveat is provided in it, it will have been checked
+// before authorization succeeds.
 package auth
 
 import (
 	"bytes"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -33,17 +108,17 @@ const (
 
 // TODO what about long-lived authorization macaroons?
 
-// TODO some kinds of operations may be awkward to express within
-// this framework. For example, consider a "RemoveAll" operation
-// that requires write access to all entities in a collection.
-// If an entity is added between authorization and the
-// action taking place, the authorization may become invalid.
-// But in this case it's probably best not to create authorization
-// for all the entities at once but to authorize for an entity that
-// (for example) represents all the entities at a given point in time.
-// If the entities change between authorization and action,
-// we could just return "permission denied", or delete all entities
-// older than that time or something.
+// TODO some kinds of operations may be awkward to express within this
+// framework. For example, consider a "RemoveAll" operation that
+// requires write access to all entities in a collection. If an entity
+// is added between authorization and the action taking place, the
+// authorization may become invalid. But in this case it's probably best
+// not to create authorization for all the entities at once but to
+// authorize for an entity that (for example) represents all the
+// entities at a given point in time. If the entities change between
+// authorization and action, we could just return "permission denied",
+// or delete all entities older than that time or something.
+//
 // Concrete examples of this kind of thing would be useful.
 
 // TODO what's the standard way of asking for authenticated access? LoginOp?
@@ -108,18 +183,24 @@ type Params struct {
 	// StoreForEntity returns the macaroon storage to be
 	// used for root keys associated with the given entity name.
 	//
-	// If this is nil, a function that returns a storage returned
-	// by bakery.NewMemStorage will be used.
+	// If this is nil, a store created by bakery.NewMemStorage will be used.
 	StoreForEntity func(entity string) bakery.Storage
 
-	// MultiOpStore is used to persistently store the association
-	// of multi-op entities with their associated operations
-	// and caveats.
+	// MultiOpStore is used to persistently store the association of
+	// multi-op entities with their associated operations and
+	// caveats.
+	//
+	// This will only be used when either:
+	// - Capability is called with multiple operations
+	// or
+	// - Authorize is called with multiple operations and additional caveats.
+	//
+	// TODO if this is nil, embed the operations directly in the caveat id.
 	MultiOpStore MultiOpStore
 
-	// Key holds the private key pair of the service. It is used
-	// to decrypt user information found in third party authentication declarations
-	// and to encrypt third party caveats.
+	// Key holds the private key pair of the service. It is used to
+	// decrypt user information found in third party authentication
+	// declarations and to encrypt third party caveats.
 	Key *bakery.KeyPair
 
 	// Locator is used to find out information on third parties when
@@ -245,7 +326,7 @@ func (c *Checker) Capability(ctxt context.Context, mss []macaroon.Slice, clientV
 	// We've now checked that the user has permission to execute all
 	// the required operations so we can create the equivalent authz
 	// capability.
-	m, err := a.newAuthzMacaroon()
+	m, err := a.newAuthzMacaroon(false)
 	if err != nil {
 		return nil, nil, errgo.Notef(err, "cannot mint capability")
 	}
@@ -417,6 +498,9 @@ func (a *authorizer) checkAuthzMacaroon(ms macaroon.Slice) error {
 			// we're not interested in right now.
 			continue
 		}
+		// TODO if there's no multi-op store, we could guess at a common case
+		// by getting the multi-op key for a.ops and if the hash is identical
+		// we know we've got the right result.
 		storedOps, err := a.p.MultiOpStore.GetMultiOp(a.context, entityName)
 		if err != nil && errgo.Cause(err) != ErrNotFound {
 			return errgo.Mask(err)
@@ -527,7 +611,6 @@ func (a *authorizer) authorizeWhenAuthenticated(user User) error {
 		}
 		// The client hasn't authenticated yet - provide a way for
 		// them to do so.
-		log.Printf("acl %q not satisfied by logged in user", acl)
 		return a.newAuthnDischargeRequiredError()
 	}
 	// We now know that the user is a member of all required ACLs.
@@ -581,29 +664,36 @@ func (a *authorizer) newAuthnDischargeRequiredError() error {
 	}
 }
 
-// newAuthzDischargeRequiredError mints an authz macaroon and returns it as a discharge-required error.
-// The macaroon will be good for any of the given operations and will include
-// all the given caveats.
+// newAuthzDischargeRequiredError mints an authz macaroon and returns it
+// as a discharge-required error. The macaroon will be good for any of
+// the required operations and will include all the required caveats.
 func (a *authorizer) newAuthzDischargeRequiredError() error {
-	m, err := a.newAuthzMacaroon()
+	m, err := a.newAuthzMacaroon(true)
 	if err != nil {
 		return errgo.Mask(err)
 	}
 	return &DischargeRequiredError{
 		Macaroon:      m,
 		Authenticator: true,
-		Message:       "login required",
+		Message:       "further authorization required",
 	}
 }
 
 // newAuthzMacaroon returns a new macaroon which authorizes all
 // the requested operations and has the requested caveats.
-func (a *authorizer) newAuthzMacaroon() (*macaroon.Macaroon, error) {
+//
+// The needCaveats argument specifies whether the authorizer caveats
+// must be added.
+func (a *authorizer) newAuthzMacaroon(needCaveats bool) (*macaroon.Macaroon, error) {
 	entity, actions, err := a.authzEntity()
 	if err != nil {
 		return nil, errgo.Mask(err)
 	}
-	caveats := append(a.caveats, checkers.TimeBeforeCaveat(time.Now().Add(a.p.CapabilityLifetime)))
+	var caveats []checkers.Caveat
+	if needCaveats {
+		caveats = a.caveats
+	}
+	caveats = append(caveats, checkers.TimeBeforeCaveat(time.Now().Add(a.p.CapabilityLifetime)))
 	if len(actions) != 0 {
 		caveats = append(caveats, checkers.AllowCaveat(actions...))
 	}

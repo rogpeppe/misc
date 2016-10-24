@@ -16,14 +16,14 @@ type AuthInfo struct {
 	// these conditions before actually performing the requested action.
 	PendingConditions []string
 
-	// User holds information on the authenticated
-	// user. This may be nil after a successful authorization
-	// if Login access was not required.
+	// User holds information on the authenticated user as returned
+	// from IdentityService.DeclaredUser. It may be nil after a
+	// successful authorization if Login access was not required.
 	User User
 
-	// Macaroons holds all the macaroons that
-	// were used for the authorization. Macaroons that were
-	// invalid or unnecessary are not included.
+	// Macaroons holds all the macaroons that were used for the
+	// authorization. Macaroons that were invalid or unnecessary are
+	// not included.
 	Macaroons []macaroon.Slice
 
 	// TODO add information on user ids that have contributed

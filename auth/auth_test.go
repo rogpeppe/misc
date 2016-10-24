@@ -54,7 +54,6 @@ func (*authSuite) TestAuthorizeWithHTTPBakery(c *gc.C) {
 	resp, err := http.Get(svc.URL + "/")
 	c.Assert(err, gc.IsNil)
 	h.assertSuccess(c, resp, "GET", "/")
-
 }
 
 func (*authSuite) TestEndpointWithAuthenticationRequired(c *gc.C) {
@@ -268,13 +267,6 @@ type capabilityResponse struct {
 type testHandler struct {
 }
 
-func (h testHandler) assertSuccess(c *gc.C, resp *http.Response, method, path string) {
-	defer resp.Body.Close()
-	data, err := ioutil.ReadAll(resp.Body)
-	c.Assert(err, gc.IsNil)
-	c.Assert(string(data), gc.Equals, fmt.Sprintf("ok %s %s", method, path))
-}
-
 func (h testHandler) EndpointAuth(req *http.Request) ([]auth.Op, []checkers.Caveat) {
 	req.ParseForm()
 	ops := []auth.Op{{
@@ -292,6 +284,13 @@ func (h testHandler) EndpointAuth(req *http.Request) ([]auth.Op, []checkers.Cave
 
 func (h testHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, "ok %s %v", req.Method, req.URL.Path)
+}
+
+func (h testHandler) assertSuccess(c *gc.C, resp *http.Response, method, path string) {
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	c.Assert(err, gc.IsNil)
+	c.Assert(string(data), gc.Equals, fmt.Sprintf("ok %s %s", method, path))
 }
 
 type authHTTPService struct {
