@@ -32,9 +32,9 @@ type authSuite struct{}
 
 var _ = gc.Suite(&authSuite{})
 
-// authHTTPHandler represents an HTTP handler that can be queried
+// AuthHTTPHandler represents an HTTP handler that can be queried
 // for authorization information.
-type authHTTPHandler interface {
+type AuthHTTPHandler interface {
 	http.Handler
 	// EndpointAuth returns the operations and caveats required by the
 	// endpoint implied by the given request.
@@ -264,9 +264,17 @@ type capabilityResponse struct {
 	Macaroon *macaroon1.Macaroon
 }
 
+// testHandler implements a AuthHTTPHandler by providing path-level
+// granularity for operations.
 type testHandler struct {
 }
 
+// EndpointAuth implements AuthHTTPHandler.EndpointAuth by returning an
+// operation operates on the req.URL.Path entity with the HTTP method as
+// an action.
+//
+// To test multiple-entity operations, all values of the "e" query
+// parameter are also added as GET operations.
 func (h testHandler) EndpointAuth(req *http.Request) ([]auth.Op, []checkers.Caveat) {
 	req.ParseForm()
 	ops := []auth.Op{{
@@ -282,6 +290,7 @@ func (h testHandler) EndpointAuth(req *http.Request) ([]auth.Op, []checkers.Cave
 	return ops, nil
 }
 
+// ServeHTTP implements http.Handler.
 func (h testHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Fprintf(w, "ok %s %v", req.Method, req.URL.Path)
 }
@@ -295,7 +304,7 @@ func (h testHandler) assertSuccess(c *gc.C, resp *http.Response, method, path st
 
 type authHTTPService struct {
 	*httptest.Server
-	handler  authHTTPHandler
+	handler  AuthHTTPHandler
 	entities map[string]map[string]auth.ACL
 	idm      *identityService
 }
@@ -303,7 +312,7 @@ type authHTTPService struct {
 // newAuthHTTPService returns a new HTTP service that serves requests from the given handler.
 // The entities map holds an entry for each known entity holding a map from action to ACL.
 // The checker is used to check first party caveats and may be nil.
-func newAuthHTTPService(handler authHTTPHandler, entities map[string]map[string]auth.ACL, caveatChecker checkers.Checker) *authHTTPService {
+func newAuthHTTPService(handler AuthHTTPHandler, entities map[string]map[string]auth.ACL, caveatChecker checkers.Checker) *authHTTPService {
 	key, err := bakery.GenerateKey()
 	if err != nil {
 		panic(err)
@@ -335,7 +344,7 @@ func (svc *authHTTPService) getACLs(_ context.Context, ops []auth.Op) ([]auth.AC
 	return acls, nil
 }
 
-func checkHTTPAuth(checker *auth.Checker, h authHTTPHandler) http.Handler {
+func checkHTTPAuth(checker *auth.Checker, h AuthHTTPHandler) http.Handler {
 	return &httpAuthChecker{
 		checker: checker,
 		h:       h,
@@ -344,7 +353,7 @@ func checkHTTPAuth(checker *auth.Checker, h authHTTPHandler) http.Handler {
 
 type httpAuthChecker struct {
 	checker *auth.Checker
-	h       authHTTPHandler
+	h       AuthHTTPHandler
 }
 
 func (s *httpAuthChecker) ServeHTTP(w http.ResponseWriter, req *http.Request) {
