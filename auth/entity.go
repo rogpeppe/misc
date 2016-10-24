@@ -26,7 +26,7 @@ const (
 	MultiOpEntityPrefix = "multi"
 )
 
-// NewMultiEntity returns a new multi-op entity name that represents
+// newMultiEntity returns a new multi-op entity name that represents
 // all the given operations and caveats. It returns the same value regardless
 // of the ordering of the operations. It also sorts the caveats and returns
 // the operations sorted with duplicates removed.
@@ -34,7 +34,7 @@ const (
 // An unattenuated macaroon that has an id with a given multi-op key
 // can be used to authorize any or all of the operations, assuming
 // the value can be found in the MultiOpStore.
-func NewMultiOpEntity(ops []Op) (string, []Op) {
+func newMultiOpEntity(ops []Op) (string, []Op) {
 	sort.Sort(opsByValue(ops))
 	// Hash the operations, removing duplicates as we go.
 	h := sha256.New()

@@ -1,11 +1,12 @@
-// Package auth defines a structured way of authorizing access to a service.
+// Package auth defines a structured way of authorizing access to a
+// service.
 //
-// It relies on a third party (the identity service)
-// to authenticate users and define group membership.
+// It relies on a third party (the identity service) to authenticate
+// users and define group membership.
 //
 // When a user has authenticated themselves, they are allowed to obtain
-// short-term capabilities that can be passed around so that third parties
-// can act on their behalf.
+// short-term capabilities that can be passed around so that third
+// parties can act on their behalf.
 //
 // Users and groups and ACLs and entities
 //
@@ -13,7 +14,7 @@
 // authentication is not part of the scope of this package, but at the
 // least each user has an id (the same each time a given user connects)
 // and a domain that defines the name space within which the id lives.
-///
+//
 // A group represents some collection of users. It is possible to find
 // out whether a user is a member of a group, but not necessarily to
 // find out all users that are part of the group. Groups live in the
@@ -22,8 +23,8 @@
 //
 // An ACL defines an access control list - a set of users and groups,
 // any one of whom may access something. A user will be allowed to
-// something protected by an ACL if the user is a member of any of the
-// members of the ACL.
+// access something protected by an ACL if the user is a member of any
+// of the members of the ACL.
 //
 // An entity holds something in a service that is subject to
 // authorization control. Every entity has a name that's defines it -
@@ -34,11 +35,17 @@
 // Operations and authorization and capabilities
 //
 // An operation defines some requested action on an entity. For example,
-// a file system server might define an entity for every file in the
-// server. In this case the entity name might be the file's path and the
-// action might be one of "read", "write". The exact set of entities and
-// actions is up to the caller, but should be kept stable over time
-// because authorization tokens will contain these names.
+// if file system server defines an entity for every file in the
+// server, an operation to read a file might look like:
+//
+//     Op{
+//		Entity: "/foo",
+//		Action: "write",
+//	}
+//
+// The exact set of entities and actions is up to the caller, but should
+// be kept stable over time because authorization tokens will contain
+// these names.
 //
 // To authorize some request on behalf of a remote user, first find out
 // what operations that request needs to perform. For example, if the
@@ -62,6 +69,13 @@
 // authentication macaroon in that it authorizes the operations
 // implicitly without the need for authentication, so can be passed to
 // third parties to act on the user's behalf.
+//
+// Note if operations are derived from a request, the scope of the
+// capability for the request might allow more than exactly that request
+// - for example, if the user requested to write the string "bar" to the
+// file /foo, the resulting capability might allow any write to that
+// file. It is up to the service to define and document the granularity
+// of operations.
 //
 // Capabilities may be combined for authorization, so a request that
 // involves several operations may be authorized by a set of
@@ -776,7 +790,7 @@ func (a *authorizer) authzEntity() (entity string, allowActions []string, err er
 		return entity, actions, nil
 	}
 	// Operations on multiple identities. Create a multi-op key and use that.
-	entity, ops := NewMultiOpEntity(a.ops)
+	entity, ops := newMultiOpEntity(a.ops)
 	if err := a.p.MultiOpStore.PutMultiOp(a.context, entity, ops, time.Now().Add(a.p.CapabilityLifetime)); err != nil {
 		return "", nil, errgo.Notef(err, "cannot save multi-op entity")
 	}
