@@ -264,7 +264,7 @@ type capabilityResponse struct {
 	Macaroon *macaroon1.Macaroon
 }
 
-// testHandler implements a AuthHTTPHandler by providing path-level
+// testHandler implements AuthHTTPHandler by providing path-level
 // granularity for operations.
 type testHandler struct {
 }
