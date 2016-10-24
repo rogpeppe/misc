@@ -7,7 +7,7 @@
 // short-term capabilities that can be passed around so that third parties
 // can act on their behalf.
 //
-// Users, groups, ACLs and entities
+// Users and groups and ACLs and entities
 //
 // A user represents some authenticated user. The nature of that
 // authentication is not part of the scope of this package, but at the
@@ -31,7 +31,7 @@
 // entity should start with the prefixes "login" or "multi-" - these are
 // reserved for internal use only.
 //
-// Operations, authorization and capabilities
+// Operations and authorization and capabilities
 //
 // An operation defines some requested action on an entity. For example,
 // a file system server might define an entity for every file in the
