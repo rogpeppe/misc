@@ -2,21 +2,34 @@ package auth
 
 import (
 	errgo "gopkg.in/errgo.v1"
-	macaroon "gopkg.in/macaroon.v2-unstable"
+
+	"gopkg.in/macaroon-bakery.v2-unstable/bakery/checkers"
 )
 
-// DischargeRequiredError is returned when authorization has failed
-// and a discharged macaroon might fix it.
+// DischargeRequiredError is returned when authorization has failed and a
+// discharged macaroon might fix it.
+//
+// A caller should grant the user the ability to authorize by minting a
+// macaroon associated with Ops (see MacaroonStore.MacaroonIdInfo for
+// how the associated operations are retrieved) and adding Caveats. If
+// the user succeeds in discharging the caveats, the authorization will
+// be granted.
 type DischargeRequiredError struct {
+	// Message holds some reason why the authorization was denied.
+	// TODO this is insufficient (and maybe unnecessary) because we
+	// can have multiple errors.
 	Message string
-	// Authenticator holds whether the macaroon should be treated
-	// as an authentication macaroon. Authentication macaroons generally
-	// have a longer lifespan than authorization macaroons.
-	//
-	// Authorization macaroons are usually acquired for the duration of
-	// a request only and will usually not be stored into persistent storage.
-	Authenticator bool
-	Macaroon      *macaroon.Macaroon
+
+	// Ops holds all the operations that were not authorized.
+	// If Ops contains a single LoginOp member, the macaroon
+	// should be treated as an login token. Login tokens (also
+	// known as authentication macaroons) usually have a longer
+	// life span than other macaroons.
+	Ops []Op
+
+	// Caveats holds the caveats that must be added
+	// to macaroons that authorize the above operations.
+	Caveats []checkers.Caveat
 }
 
 func (e *DischargeRequiredError) Error() string {

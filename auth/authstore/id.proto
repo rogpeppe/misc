@@ -1,0 +1,16 @@
+syntax="proto3";
+
+option go_package = "authstore";
+
+message MacaroonId {
+	int32 version = 1;
+	bytes nonce = 2;
+	bytes storageId = 3;
+	repeated Op ops = 4;
+	string entity = 5;
+}
+
+message Op {
+	string entity = 1;
+	string action = 2;
+}
