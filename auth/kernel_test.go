@@ -426,13 +426,13 @@ func newAuthHTTPService(handler AuthHTTPHandler, idm auth.IdentityClient, acls A
 		caveatChecker = checkers.New()
 	}
 	store := newMacaroonStore()
-	kernel := auth.NewKernel(auth.KernelParams{
+	service := auth.NewService(auth.ServiceParams{
 		CaveatChecker:  caveatChecker,
 		UserChecker:    &aclUserChecker{acls},
 		IdentityClient: idm,
 		MacaroonStore:  store,
 	})
-	return httptest.NewServer(checkHTTPAuth(kernel, store, handler))
+	return httptest.NewServer(checkHTTPAuth(service, store, handler))
 }
 
 type ACL []string
@@ -453,24 +453,24 @@ func (f ACLGetterFunc) GetACL(ctxt context.Context, op auth.Op) (ACL, []checkers
 	return f(ctxt, op)
 }
 
-func checkHTTPAuth(kernel *auth.Kernel, store *macaroonStore, h AuthHTTPHandler) http.Handler {
+func checkHTTPAuth(service *auth.Service, store *macaroonStore, h AuthHTTPHandler) http.Handler {
 	return &httpAuthChecker{
-		kernel: kernel,
-		h:      h,
-		store:  store,
+		service: service,
+		h:       h,
+		store:   store,
 	}
 }
 
 type httpAuthChecker struct {
-	kernel *auth.Kernel
-	h      AuthHTTPHandler
-	store  *macaroonStore
+	service *auth.Service
+	h       AuthHTTPHandler
+	store   *macaroonStore
 }
 
 func (s *httpAuthChecker) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	mss := httpbakery.RequestMacaroons(req)
 	logger.Infof("%d macaroons in request", len(mss))
-	authorizer := s.kernel.NewAuthorizer(mss)
+	authorizer := s.service.NewAuthorizer(mss)
 
 	//	version := httpbakery.RequestVersion(req)
 	if req.Method == "AUTH" {

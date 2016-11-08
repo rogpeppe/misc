@@ -1,3 +1,88 @@
+// Package auth defines a structured way of authorizing access to a
+// service.
+//
+// It relies on a third party (the identity service) to authenticate
+// users and define group membership.
+//
+// It uses macaroons as authorization tokens but it is not itself responsible for
+// creating the macaroons - how and when to do that is considered
+// a higher level thing.
+//
+// Identity and entities
+//
+// An Identity represents some user (or agent) authenticated by a third party.
+//
+// Authenticating as a user allows access to the
+//
+// An entity holds something in a service that is subject to
+// authorization control. Every entity has a name that's defines it -
+// every service will define its own set of entities. No service-defined
+// entity should start with the prefixes "login" or "multi-" - these are
+// reserved for internal use only.
+//
+// Operations and authorization and capabilities
+//
+// An operation defines some requested action on an entity. For example,
+// if file system server defines an entity for every file in the
+// server, an operation to read a file might look like:
+//
+//     Op{
+//		Entity: "/foo",
+//		Action: "write",
+//	}
+//
+// The exact set of entities and actions is up to the caller, but should
+// be kept stable over time because authorization tokens will contain
+// these names.
+//
+// To authorize some request on behalf of a remote user, first find out
+// what operations that request needs to perform. For example, if the
+// user tries to delete a file, the entity might be the path to the
+// file's directory and the action might be "write". It may often be
+// possible to determine the operations required by a request without
+// reference to anything external, when the request itself contains all
+// the necessary information.
+//
+// The primary way of authorizing is by authentication. If a client can
+// prove their identity, then Authorize can check whether they're a
+// member of an ACL. If the client can't prove their identity, Authorize
+// will return a macaroon that can be used to do so. This is known as an
+// "authentication" macaroon and should not in general be passed to
+// third parties because it can be used to perform any operation that
+// the user is alowed.
+//
+// If a user is allowed to perform a set of operations, that user may
+// also request a "capability" macaroon that can be used to perform
+// those operations for a limited period of time. This differs from the
+// authentication macaroon in that it authorizes the operations
+// implicitly without the need for authentication, so can be passed to
+// third parties to act on the user's behalf.
+//
+// Note if operations are derived from a request, the scope of the
+// capability for the request might allow more than exactly that request
+// - for example, if the user requested to write the string "bar" to the
+// file /foo, the resulting capability might allow any write to that
+// file. It is up to the service to define and document the granularity
+// of operations.
+//
+// Capabilities may be combined for authorization, so a request that
+// involves several operations may be authorized by a set of
+// capabilities that authorize all the operations between them, even
+// though no single one is sufficient. Note that because a capability
+// may be created for any set of operations that can be authorized, this
+// means we can combine several capabilities into a single capability
+// with the the capabilities of all.
+//
+// Third party caveats
+//
+// Sometimes just a set of operations is not sufficient to determine
+// whether the user should be granted access to an entity. For example,
+// we might need the user to verify something about the entity with some
+// third party.
+//
+// This is why there is a caveats argument to Authorize and Capability.
+// If a third party caveat is provided in it, it will have been checked
+// before authorization succeeds.
 package auth
 
 import (
@@ -27,19 +112,24 @@ var LoginOp = Op{
 
 var ErrPermissionDenied = errgo.New("permission denied")
 
-type KernelParams struct {
+type ServiceParams struct {
 	// CaveatChecker is used to check first party caveats when authorizing.
 	CaveatChecker checkers.Checker
 
-	// UserChecker is used to check whether an authenticated user
-	// is allowed to perform operations.
+	// UserChecker is used to check whether an authenticated user is
+	// allowed to perform operations.
+	//
+	// The identity parameter passed to UserChecker.Allow will
+	// always have been obtained from a call to
+	// IdentityService.DeclaredIdentity.
 	UserChecker UserChecker
 
 	// IdentityService is used for interactions with the external
 	// identity service used for authentication.
 	IdentityClient IdentityService
 
-	// MacaroonStore stores macaroon root keys.
+	// MacaroonStore is used to retrieve macaroon root keys
+	// and other associated information.
 	MacaroonStore MacaroonStore
 }
 
@@ -108,17 +198,17 @@ type AuthInfo struct {
 	// AuthorizingUserIds []string
 }
 
-// Kernel represents an authorization kernel. It defines the identity
+// Service represents an authorization service. It defines the identity
 // service that's used as the root of trust, and persistent storage for
 // macaroon root keys.
-type Kernel struct {
-	p             KernelParams
+type Service struct {
+	p             ServiceParams
 	caveatChecker bakery.FirstPartyCaveatChecker
 }
 
-func NewKernel(p KernelParams) *Kernel {
+func NewService(p ServiceParams) *Service {
 	checker := checkers.New(p.CaveatChecker)
-	return &Kernel{
+	return &Service{
 		p:             p,
 		caveatChecker: checker,
 	}
@@ -127,10 +217,11 @@ func NewKernel(p KernelParams) *Kernel {
 // UserChecker is used to check whether a given user is allowed
 // to perform a set of operations.
 type UserChecker interface {
-	// Allow checks whether the given user is allowed to perform
+	// Allow checks whether the given identity (which will be nil
+	// when there is no authenticated user) is allowed to perform
 	// the given operations. It should return an error only when
-	// some underlying database operation has failed, not when
-	// the user has been denied access.
+	// some underlying database operation has failed, not when the
+	// user has been denied access.
 	//
 	// On success, each element of allowed holds whether the respective
 	// element of ops has been allowed, and caveats holds any additional
@@ -140,10 +231,10 @@ type UserChecker interface {
 
 // NewAuthorizer makes a new Authorizer instance using the
 // given macaroons to inform authorization decisions.
-func (k *Kernel) NewAuthorizer(mss []macaroon.Slice) *Authorizer {
+func (s *Service) NewAuthorizer(mss []macaroon.Slice) *Authorizer {
 	return &Authorizer{
 		macaroons: mss,
-		kernel:    k,
+		service:   s,
 	}
 }
 
@@ -162,7 +253,7 @@ type Authorizer struct {
 	// conditions holds the first party caveat conditions
 	// that apply to each of the above macaroons.
 	conditions [][]string
-	kernel     *Kernel
+	service    *Service
 	initOnce   sync.Once
 	initError  error
 	identity   Identity
@@ -185,7 +276,7 @@ func (a *Authorizer) initOnceFunc(ctxt context.Context) error {
 		if len(ms) == 0 {
 			continue
 		}
-		rootKey, ops, err := a.kernel.p.MacaroonStore.MacaroonIdInfo(ctxt, ms[0].Id())
+		rootKey, ops, err := a.service.p.MacaroonStore.MacaroonIdInfo(ctxt, ms[0].Id())
 		if err != nil {
 			logger.Infof("cannot get macaroon id info for %q\n", ms[0].Id())
 			// TODO log error - if it's a storage error, return early here.
@@ -211,7 +302,7 @@ func (a *Authorizer) initOnceFunc(ctxt context.Context) error {
 				// TODO log duplicate authn-macaroon error
 				continue
 			}
-			identity, err := a.kernel.p.IdentityClient.DeclaredIdentity(declared)
+			identity, err := a.service.p.IdentityClient.DeclaredIdentity(declared)
 			if err != nil {
 				logger.Infof("cannot decode declared identity: %v", err)
 				// TODO log user-decode error
@@ -352,7 +443,7 @@ func (a *Authorizer) allowAny(ctxt context.Context, ops []Op) (authed, used []bo
 	}
 	logger.Infof("operations needed after authz macaroons: %#v", need)
 	// Try to authorize the operations even even if we haven't got an authenticated user.
-	oks, caveats, err := a.kernel.p.UserChecker.Allow(ctxt, a.identity, need)
+	oks, caveats, err := a.service.p.UserChecker.Allow(ctxt, a.identity, need)
 	if err != nil {
 		return authed, used, errgo.Notef(err, "cannot check permissions")
 	}
@@ -378,7 +469,7 @@ func (a *Authorizer) allowAny(ctxt context.Context, ops []Op) (authed, used []bo
 		return authed, used, &DischargeRequiredError{
 			Message: "authentication required",
 			Ops:     []Op{LoginOp},
-			Caveats: a.kernel.p.IdentityClient.IdentityCaveats(),
+			Caveats: a.service.p.IdentityClient.IdentityCaveats(),
 		}
 	}
 	if len(caveats) == 0 {
@@ -504,7 +595,7 @@ func (a *Authorizer) checkConditions(ctxt context.Context, op Op, conds []string
 	ctxt = checkers.ContextWithOperations(ctxt, op.Action)
 	ctxt = checkers.ContextWithDeclared(ctxt, declared)
 	for _, cond := range conds {
-		if err := a.kernel.caveatChecker.CheckFirstPartyCaveat(ctxt, cond); err != nil {
+		if err := a.service.caveatChecker.CheckFirstPartyCaveat(ctxt, cond); err != nil {
 			return nil, errgo.Mask(err)
 		}
 	}
