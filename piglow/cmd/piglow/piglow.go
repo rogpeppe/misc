@@ -1,3 +1,43 @@
+/*
+The pipglow command sets LEDs on the piglow board.
+
+Usage: piglow [flags] level group|operator...
+
+Flags:
+
+    -r	start all LEDs from afresh
+
+The piglow command sets a set of PiGlow LEDs to the given
+level (0-255).
+
+Each argument after the level operates on a stack, each element
+of which holds a set of LEDs. Elements are added by proceeding
+through all the arguments in sequence. After all arguments are
+processed, the union of all LEDs in the stack will be set.
+
+The following arguments are recognized:
+
+	all - all the LEDs.
+	<color name> - all the LEDs with the given color.
+	<number> - the LED with the given number (0..17)
+	r<number> - all LEDs the given radius from the centre (0..6)
+	arm<number> - all LEDs in the given arm (0..2)
+	<number>..<number> - all LEDs in the given numeric range
+	r<number>..r<number> - all LEDs in the given radius range
+	+ - the union of the top two stack elements
+	- - the difference of the top two stack elements
+	. - the intersection of the top two stack elements
+
+For example:
+
+	piglow 50 arm1 red white + .
+
+will set the red and white LEDs on arm 1 to level 50.
+
+	piglow 10 all white -
+
+will set all except the white LEDs to level 10.
+*/
 package main
 
 import (
@@ -15,9 +55,11 @@ var reset = flag.Bool("r", false, "start all LEDs from afresh")
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `usage: piglow [flags] level group|operator...\n`)
+		fmt.Fprintln(os.Stderr, `Usage: piglow [flags] level group|operator...`)
+		fmt.Fprintln(os.Stderr, "\nFlags:")
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, `
+		fmt.Fprint(os.Stderr, `
+
 The piglow command sets a set of PiGlow LEDs to the given
 level (0-255).
 
