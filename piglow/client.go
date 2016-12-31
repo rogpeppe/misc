@@ -30,6 +30,7 @@ func (c *Client) SetBrightness(leds Set, level uint8) error {
 	if leds == 0 {
 		return nil
 	}
+	buf := make([]byte, 2)
 	glow := c.glow
 	glow.mu.Lock()
 	defer glow.mu.Unlock()
@@ -45,7 +46,9 @@ func (c *Client) SetBrightness(leds Set, level uint8) error {
 		if total > 255 {
 			total = 255
 		}
-		glow.conn.Write([]byte{byte(i + 1), gamma[total]})
+		buf[0] = byte(i + 1)
+		buf[1] = gamma[total]
+		glow.conn.Write(buf)
 	}
 	glow.conn.Write(update)
 	return nil
