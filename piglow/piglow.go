@@ -11,11 +11,9 @@ import (
 )
 
 // LED represents one of the 18 PiGlow LEDs.
-// Values range from 0 to 17. The LED numbers
-// are not the same as those in the device itself - instead
-// they are numbered by position, with each
-// range of 6 numbers representing the LEDs in
-// an arm of the spiral.
+// Values range from 0 to 17 - the device LED
+// numbers are one greater than this value
+// because they start numbering from 1.
 type LED int
 
 // NumLEDs holds the number of LEDs available.
@@ -59,12 +57,12 @@ const (
 )
 
 var byColor = []Set{
-	Red:    SetOf(0, 6, 12),
-	Orange: SetOf(1, 7, 13),
-	Yellow: SetOf(2, 8, 14),
-	Green:  SetOf(3, 9, 15),
-	Blue:   SetOf(4, 10, 16),
-	White:  SetOf(5, 11, 17),
+	Red:    SetOf(6, 17, 0),
+	Orange: SetOf(7, 16, 1),
+	Yellow: SetOf(8, 15, 2),
+	Green:  SetOf(5, 13, 3),
+	Blue:   SetOf(4, 11, 14),
+	White:  SetOf(9, 10, 12),
 }
 
 var colorNames = map[string]Color{
@@ -77,6 +75,21 @@ var colorNames = map[string]Color{
 
 // Set represents a set of LEDs. LED n is represented by the bit 1<<n.
 type Set uint32
+
+func (s Set) With(led LED) Set {
+	if led >= NumLEDs || led < 0 {
+		return s
+	}
+	return s | Set(1<<uint(led))
+}
+
+func (s Set) Without(led LED) Set {
+	return s &^ Set(1<<uint(led))
+}
+
+func (s Set) Has(led LED) bool {
+	return s&Set(1<<uint(led)) != 0
+}
 
 // SetOf returns the set of all the given LEDs.
 func SetOf(leds ...LED) Set {
@@ -102,9 +115,9 @@ func (a Arm) LEDs() Set {
 }
 
 var byArm = []Set{
-	Range{0, 6}.LEDs(),
-	Range{6, 12}.LEDs(),
-	Range{12, 18}.LEDs(),
+	SetOf(6, 7, 8, 5, 4, 9),
+	SetOf(17, 16, 15, 13, 11, 10),
+	SetOf(0, 1, 2, 3, 14, 12),
 }
 
 // Range represents a numerical range of LEDs.
@@ -119,10 +132,22 @@ type Range struct {
 // Range implements Group.LEDs by returning a set
 // of all the LEDs in the range.
 func (r Range) LEDs() Set {
-	if r.R1 <= r.R0 || r.R0 < 0 || r.R0 > NumLEDs || r.R1 < 0 || r.R1 > NumLEDs {
+	r.R0 = constrainLED(r.R0)
+	r.R1 = constrainLED(r.R1)
+	if r.R1 <= r.R0 {
 		return 0
 	}
 	return (1<<uint(r.R1) - 1) &^ (1<<uint(r.R0) - 1)
+}
+
+func constrainLED(led LED) LED {
+	if led < 0 {
+		return 0
+	}
+	if led > NumLEDs {
+		return NumLEDs
+	}
+	return led
 }
 
 // Radius represents the LEDs a certain distance from
@@ -288,12 +313,6 @@ func (p *PiGlow) SetLEDControlRegister(register, enables int) error {
 	return p.conn.Write([]byte{0x16, 0xFF})
 }
 
-var ledHex = [18]byte{
-	0x07, 0x08, 0x09, 0x06, 0x05, 0x0A,
-	0x12, 0x11, 0x10, 0x0E, 0x0C, 0x0B,
-	0x01, 0x02, 0x03, 0x04, 0x0F, 0x0D,
-}
-
 // SetBrightness sets the brightness of all the LEDs in the given
 // set to the given level.
 func (p *PiGlow) SetBrightness(leds Set, level uint8) error {
@@ -301,11 +320,25 @@ func (p *PiGlow) SetBrightness(leds Set, level uint8) error {
 		if leds&(1<<uint(i)) == 0 {
 			continue
 		}
-		if err := p.conn.Write([]byte{ledHex[i], gamma[level]}); err != nil {
+		if err := p.conn.Write([]byte{byte(i + 1), gamma[level]}); err != nil {
 			return err
 		}
 	}
 	return p.conn.Write([]byte{0x16, 0xFF})
+}
+
+// SetAllBrightness sets the brightness of all the LEDs.
+// The levels slice holds an element for each LED.
+func (p *PiGlow) SetAllBrightness(levels []uint8) error {
+	if len(levels) > NumLEDs {
+		return fmt.Errorf("too many levels specified")
+	}
+	for i, level := range levels {
+		if err := p.conn.Write([]byte{byte(i + 1), gamma[level]}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ParseGroup parses a group from a string. A group
