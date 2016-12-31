@@ -36,6 +36,8 @@ var All = Range{
 	R1: NumLEDs,
 }
 
+var allSet = All.LEDs()
+
 // Color represents a color of a PiGlow LED.
 type Color uint8
 
@@ -155,10 +157,10 @@ func constrainLED(led LED) LED {
 
 // Radius represents the LEDs a certain distance from
 // the center of the spiral. Zero represents the LEDs
-// closest to the center; 6 represents the LEDs furthest away.
+// closest to the center; 5 represents the LEDs furthest away.
 type Radius uint8
 
-const MaxRadius = 6
+const MaxRadius = 5
 
 func (r Radius) LEDs() Set {
 	return Color(r).LEDs()

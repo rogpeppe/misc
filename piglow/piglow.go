@@ -3,6 +3,7 @@ package piglow
 
 import (
 	"fmt"
+	"sync"
 
 	"golang.org/x/exp/io/i2c"
 	"golang.org/x/exp/io/i2c/driver"
@@ -10,9 +11,11 @@ import (
 
 const addr = 0x54 // address is the I2C address of the device.
 
-// PiGlow represents a PiGlow device
+// PiGlow represents a PiGlow device.
 type PiGlow struct {
-	conn *i2c.Device
+	conn    *i2c.Device
+	mu      sync.Mutex
+	clients []*Client
 }
 
 // Reset resets the internal registers
@@ -95,13 +98,7 @@ func (p *PiGlow) SetLEDControlRegister(register, enables int) error {
 	return p.conn.Write([]byte{0x16, 0xFF})
 }
 
-func (p *PiGlow) SetOne(led LED, level uint8) error {
-	p.conn.Write([]byte{byte(led + 1), gamma[level]})
-	p.conn.Write(sync)
-	return nil
-}
-
-var sync = []byte{0x16, 0xFF}
+var update = []byte{0x16, 0xFF}
 
 // SetBrightness sets the brightness of all the LEDs in the given
 // set to the given level.
@@ -120,21 +117,7 @@ func (p *PiGlow) SetBrightness(leds Set, level uint8) error {
 			return err
 		}
 	}
-	return p.conn.Write(sync)
-}
-
-// SetAllBrightness sets the brightness of all the LEDs.
-// The levels slice holds an element for each LED.
-func (p *PiGlow) SetAllBrightness(levels []uint8) error {
-	if len(levels) > NumLEDs {
-		return fmt.Errorf("too many levels specified")
-	}
-	for i, level := range levels {
-		if err := p.conn.Write([]byte{byte(i + 1), gamma[level]}); err != nil {
-			return err
-		}
-	}
-	return p.conn.Write(sync)
+	return p.conn.Write(update)
 }
 
 // gamma holds the gamma correction table
