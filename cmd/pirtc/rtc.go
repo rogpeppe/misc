@@ -18,12 +18,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: rtc [flags] [yyyy-mmddThh:mm:ssZ]\n")
 		fmt.Fprintf(os.Stderr, "If the time argument is specified, the RTC time will be set\n")
 	}
+	flag.Parse()
 	rtc, err := ds1307.Open(&i2c.Devfs{Dev: "/dev/i2c-1"})
 	if err != nil {
 		log.Fatalf("cannot open: %v", err)
 	}
-	if len(os.Args) > 1 {
-		if err := setTime(rtc, os.Args[1]); err != nil {
+	if flag.NArg() > 0 {
+		if err := setTime(rtc, flag.Arg(0)); err != nil {
 			log.Fatalf("cannot set time: %v", err)
 		}
 		if !*setSys {
