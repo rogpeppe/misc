@@ -125,6 +125,7 @@ func (srv *server) handler() http.Handler {
 		cookie, err := req.Cookie(cookieName)
 		authed := false
 		if err == nil {
+			log.Printf("cookie password %q", cookie.Value)
 			authed = cookie.Value == srv.cfg.Password
 			if !authed {
 				log.Printf("cookie auth failed; value %q", cookie.Value)
@@ -132,10 +133,11 @@ func (srv *server) handler() http.Handler {
 		}
 		req.URL.Scheme = "http"
 		if !authed {
-			req.ParseForm()
-			// TODO form value might clash!
+			values, _ := url.ParseQuery(req.URL.RawQuery)
+			log.Printf("url password %q", values.Get("pass"))
+			// TODO query value might clash!
 			// TODO distinguish between expired creds and wrong creds?
-			if req.Form.Get("pass") == srv.cfg.Password {
+			if values.Get("pass") == srv.cfg.Password {
 				setCookie(h, &http.Cookie{
 					Name:   cookieName,
 					Value:  srv.cfg.Password,  // TODO should probably not store password in plaintext.
@@ -147,6 +149,7 @@ func (srv *server) handler() http.Handler {
 		}
 		if !authed {
 			req.URL = mustParseURL(srv.errorURL + "/badcreds")
+			return
 		}
 		newHost, ok := srv.cfg.Hosts[req.Host]
 		if !ok {
