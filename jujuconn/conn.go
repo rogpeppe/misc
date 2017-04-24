@@ -243,6 +243,13 @@ func (s *cacheStore) UpdateAccount(c string, details jujuclient.AccountDetails) 
 	return nil
 }
 
+func (s *cacheStore) UpdateController(controllerName string, details jujuclient.ControllerDetails) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.controllers[controllerName] = details
+	return nil
+}
+
 func (s *cacheStore) save() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
