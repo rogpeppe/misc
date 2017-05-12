@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/rogpeppe/apicompat/jsontypes"
@@ -93,17 +94,21 @@ func main() {
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Fatal(err)
 	}
-	maxVersion := make(map[string]int)
-	for _, f := range info.Facades {
-		if v := maxVersion[f.Name]; f.Version > v {
-			maxVersion[f.Name] = f.Version
+	sort.Slice(info.Facades, func(i, j int) bool {
+		f1, f2 := info.Facades[i], info.Facades[j]
+		if f1.Name != f2.Name {
+			return f1.Name < f2.Name
 		}
-	}
+		return f1.Version > f2.Version
+	})
+	seen := make(map[string]bool)
 	facades := make([]apidoc.FacadeInfo, 0, len(info.Facades))
 	for _, f := range info.Facades {
-		if f.Version >= maxVersion[f.Name] {
-			facades = append(facades, f)
+		if seen[f.Name] {
+			continue
 		}
+		facades = append(facades, f)
+		seen[f.Name] = true
 	}
 	info.Facades = facades
 
