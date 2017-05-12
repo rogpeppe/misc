@@ -22,7 +22,7 @@ import (
 	"gopkg.in/errgo.v1"
 )
 
-//go:generate go-bindata -debug jujugenerateapidoc
+//go:generate go-bindata jujugenerateapidoc
 
 func main() {
 	flag.Parse()

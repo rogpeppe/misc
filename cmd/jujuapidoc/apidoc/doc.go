@@ -14,10 +14,11 @@ type Info struct {
 // FacadeInfo holds information on a particular
 // version of a facade.
 type FacadeInfo struct {
-	Name    string
-	Version int
-	Doc     string `json:",omitempty"`
-	Methods []Method
+	Name        string
+	Version     int
+	Doc         string `json:",omitempty"`
+	Methods     []Method
+	AvailableTo []string `json:",omitempty"`
 }
 
 // Methods holds information on an RPC method implemented

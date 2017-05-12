@@ -22,7 +22,13 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/juju/errors"
+	"github.com/juju/juju/apiserver/common"
+	"github.com/juju/juju/apiserver/facade"
+	"github.com/juju/juju/permission"
+	"github.com/juju/juju/state"
 	"github.com/rogpeppe/misc/cmd/jujuapidoc/apidoc"
+	"gopkg.in/juju/names.v2"
 )
 
 func main() {
@@ -35,6 +41,9 @@ func main() {
 		log.Fatal(err)
 	}
 	os.Stdout.Write(data)
+	if len(panicked) > 0 {
+		log.Printf("%d/%d facades panicked when trying to determine access (this is normal)", len(panicked), len(allFacadeNames))
+	}
 }
 
 func generateInfo() (*apidoc.Info, error) {
@@ -74,8 +83,9 @@ func generateInfo() (*apidoc.Info, error) {
 	}
 	for _, d := range ds {
 		f := apidoc.FacadeInfo{
-			Name:    d.Name,
-			Version: d.Version,
+			Name:        d.Name,
+			Version:     d.Version,
+			AvailableTo: availableTo(d.Name, d.Factory),
 		}
 		pt, err := progType(prog, d.Type)
 		if err != nil {
@@ -239,4 +249,137 @@ func progType(prog *loader.Program, t reflect.Type) (*types.TypeName, error) {
 		return nil, errgo.Newf("%s is not a type", typeName)
 	}
 	return objTypeName, nil
+}
+
+func availableTo(facadeName string, factory facade.Factory) []string {
+	var a []string
+	for i, kindStr := range kinds {
+		if isAvailable(facadeName, factory, entityKind(i)) {
+			a = append(a, kindStr)
+		}
+	}
+	return a
+}
+
+var (
+	allFacadeNames = make(map[string]bool)
+	panicked       = make(map[string]bool)
+)
+
+func isAvailable(facadeName string, factory facade.Factory, kind entityKind) (ok bool) {
+	if factory == nil {
+		// Admin facade only.
+		return true
+	}
+	if kind == kindControllerUser && !apiserver.IsControllerFacade(facadeName) {
+		return false
+	}
+	if kind == kindModelUser && !apiserver.IsModelFacade(facadeName) {
+		return false
+	}
+	allFacadeNames[facadeName] = true
+	defer func() {
+		err := recover()
+		if err == nil {
+			return
+		}
+		// log.Printf("panic on facade %q, role %v (%v): %s", facadeName, kind, err, debug.Callers(0, 30))
+		panicked[facadeName] = true
+		ok = true
+	}()
+	ctx := context{
+		auth: authorizer{
+			kind: kind,
+		},
+	}
+	_, err := factory(ctx)
+	return errors.Cause(err) != common.ErrPerm
+}
+
+type entityKind int
+
+const (
+	kindControllerMachine = entityKind(iota)
+	kindMachineAgent
+	kindUnitAgent
+	kindControllerUser
+	kindModelUser
+)
+
+func (k entityKind) String() string {
+	return kinds[k]
+}
+
+var kinds = []string{
+	kindControllerMachine: "controller-machine-agent",
+	kindMachineAgent:      "machine-agent",
+	kindUnitAgent:         "unit-agent",
+	kindControllerUser:    "controller-user",
+	kindModelUser:         "model-user",
+}
+
+type context struct {
+	auth authorizer
+	facade.Context
+}
+
+func (c context) Auth() facade.Authorizer {
+	return c.auth
+}
+
+func (c context) ID() string {
+	return ""
+}
+
+func (c context) State() *state.State {
+	return new(state.State)
+}
+
+func (c context) Resources() facade.Resources {
+	return nil
+}
+
+func (c context) StatePool() *state.StatePool {
+	return new(state.StatePool)
+}
+
+func (c context) ControllerTag() names.ControllerTag {
+	return names.NewControllerTag("xxxx")
+}
+
+type authorizer struct {
+	facade.Authorizer
+	kind entityKind
+}
+
+func (a authorizer) AuthController() bool {
+	return a.kind == kindControllerMachine
+}
+
+func (a authorizer) HasPermission(operation permission.Access, target names.Tag) (bool, error) {
+	return true, nil
+}
+
+func (a authorizer) AuthMachineAgent() bool {
+	return a.kind == kindMachineAgent || a.kind == kindControllerMachine
+}
+
+func (a authorizer) AuthUnitAgent() bool {
+	return a.kind == kindUnitAgent
+}
+
+func (a authorizer) AuthClient() bool {
+	return a.kind == kindControllerUser || a.kind == kindModelUser
+}
+
+func (a authorizer) GetAuthTag() names.Tag {
+	switch a.kind {
+	case kindControllerUser, kindModelUser:
+		return names.NewUserTag("bob")
+	case kindUnitAgent:
+		return names.NewUnitTag("xx/0")
+	case kindMachineAgent, kindControllerMachine:
+		return names.NewMachineTag("0")
+	}
+	panic("unknown kind")
 }

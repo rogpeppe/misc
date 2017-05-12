@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/rogpeppe/apicompat/jsontypes"
 
@@ -50,7 +51,7 @@ var htmlTmpl = `
 <body>
 <h1>Juju API facades</h1>
 {{range .Facades}}
-	<h2 id="{{.Name}}"><a href="#{{.Name}}">{{.Name}}</a></h2>
+	<h2 id="{{.Name}}"><a href="#{{.Name}}">{{.Name}}</a> v{{.Version}} <span style="font-size:80%;font-style: italic">{{.AvailableTo | join " "}}</span></h2>
 	<p>{{.Doc}}</p>
 	<table>
 		<tr>
@@ -73,35 +74,6 @@ var htmlTmpl = `
 </html>
 `
 
-var clientFacades = map[string]bool{
-	"Action": true,
-	"AllModelWatcher": true,
-	"AllWatcher": true,
-	"Annotations": true,
-	"Application": true,
-	"Backups": true,
-	"Block": true,
-	"Charms": true,
-	"Client": true,
-	"Cloud": true,
-	"Controller": true,
-	"HighAvailability": true,
-	"ImageManager": true,
-	"ImageMetadata": true,
-	"KeyManager": true,
-	"MachineManager": true,
-	"MetricsDebug": true,
-	"ModelConfig": true,
-	"ModelManager": true,
-	"Pinger": true,
-	"Spaces": true,
-	"SSHClient": true,
-	"Storage": true,
-	"Subnets": true,
-	"UserManager": true,
-	"Admin": true,
-}
-
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: jujuapidochtml api.json\n")
@@ -121,19 +93,19 @@ func main() {
 	if err := json.Unmarshal(data, &info); err != nil {
 		log.Fatal(err)
 	}
+	maxVersion := make(map[string]int)
+	for _, f := range info.Facades {
+		if v := maxVersion[f.Name]; f.Version > v {
+			maxVersion[f.Name] = f.Version
+		}
+	}
 	facades := make([]apidoc.FacadeInfo, 0, len(info.Facades))
 	for _, f := range info.Facades {
-		if !clientFacades[f.Name] {
+		if f.Version >= maxVersion[f.Name] {
 			facades = append(facades, f)
 		}
 	}
 	info.Facades = facades
-//	c := 0
-//	for _, f := range info.Facades {
-//		c += len(f.Methods)
-//	}
-//	fmt.Println(c)
-//	return
 
 	t, err := template.New("").Funcs(tmplFuncs).Parse(htmlTmpl)
 	if err != nil {
@@ -151,5 +123,8 @@ var tmplFuncs = template.FuncMap{
 		}
 		link := fmt.Sprintf(`<a href="https://godoc.org/%s">%s</a>`, t.Name, t.Name.Name())
 		return template.HTML(link)
+	},
+	"join": func(sep string, ss []string) string {
+		return strings.Join(ss, sep)
 	},
 }
