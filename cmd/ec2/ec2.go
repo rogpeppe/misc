@@ -10,20 +10,21 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	
+
 	"github.com/juju/utils/parallel"
 )
 
 type cmd struct {
-	name  string
-	args  string
-	f     func(cmd, *ec2.EC2, []string)
-	flags *flag.FlagSet
+	name           string
+	args           string
+	run            func(cmd, *ec2.EC2, []string)
+	runMultiRegion func(cmd, []string)
+	flags          *flag.FlagSet
 }
 
 var cmds []cmd
 
-var regionName = flag.String("region", aws.USEast.Name, "AWS region")
+var awsAuth aws.Auth
 
 func main() {
 	flag.Parse()
@@ -31,37 +32,53 @@ func main() {
 		errorf("no command")
 		os.Exit(2)
 	}
-	auth, err := aws.EnvAuth()
-	if err != nil {
-		fatalf("envauth: %v", err)
+	var regionName string
+	for i := range cmds {
+		c := &cmds[i]
+		if c.flags == nil {
+			c.flags = flag.NewFlagSet(c.name, flag.ExitOnError)
+		}
+		if c.runMultiRegion == nil {
+			c.flags.StringVar(&regionName, "region", aws.USEast.Name, "AWS region")
+		}
 	}
-	region, ok := aws.Regions[*regionName]
-	if !ok {
-		fatalf("no such region")
-	}
-	signer := aws.SignV4Factory(region.Name, "ec2")
-	conn := ec2.New(auth, region, signer)
-
 	if flag.Arg(0) == "help" {
 		for _, c := range cmds {
 			c.printUsage()
 		}
 		return
 	}
-
+	var found cmd
 	for _, c := range cmds {
 		if flag.Arg(0) == c.name {
-			c.run(conn, flag.Args()[1:])
-			return
+			found = c
+			break
 		}
 	}
-	errorf("unknown command %q", flag.Arg(0))
-	os.Exit(2)
-}
-
-func (c cmd) run(conn *ec2.EC2, args []string) {
-	c.flags.Parse(args)
-	c.f(c, conn, c.flags.Args())
+	if found.name == "" {
+		errorf("unknown command %q", flag.Arg(0))
+		os.Exit(2)
+	}
+	auth, err := aws.EnvAuth()
+	if err != nil {
+		fatalf("envauth: %v", err)
+	}
+	awsAuth = auth
+	if found.flags == nil {
+		found.flags = flag.NewFlagSet(found.name, flag.ExitOnError)
+	}
+	found.flags.Parse(flag.Args()[1:])
+	if found.runMultiRegion != nil {
+		found.runMultiRegion(found, found.flags.Args())
+		return
+	}
+	region, ok := aws.Regions[regionName]
+	if !ok {
+		fatalf("no such region")
+	}
+	signer := aws.SignV4Factory(region.Name, "ec2")
+	conn := ec2.New(auth, region, signer)
+	found.run(found, conn, found.flags.Args())
 }
 
 func (c cmd) usage() {
@@ -86,10 +103,9 @@ func init() {
 	flags.BoolVar(&groupsFlags.vv, "vv", false, "print all attributes of group")
 	flags.BoolVar(&groupsFlags.ids, "ids", false, "print group ids")
 	cmds = append(cmds, cmd{
-		"groups",
-		"",
-		groups,
-		flags,
+		name:  "groups",
+		run:   groups,
+		flags: flags,
 	})
 }
 
@@ -126,22 +142,13 @@ func groups(c cmd, conn *ec2.EC2, _ []string) {
 	os.Stdout.Write(b.Bytes())
 }
 
-var instancesFlags struct {
-	addr  bool
-	state bool
-	all   bool
-}
-
 func init() {
 	flags := flag.NewFlagSet("instances", flag.ExitOnError)
-	flags.BoolVar(&instancesFlags.all, "a", false, "print terminated instances too")
-	flags.BoolVar(&instancesFlags.addr, "addr", false, "print instance address")
-	flags.BoolVar(&instancesFlags.state, "state", false, "print instance state")
+	addInstancesFlags(flags)
 	cmds = append(cmds, cmd{
-		"instances",
-		"",
-		instances,
-		flags,
+		name:  "instances",
+		run:   instances,
+		flags: flags,
 	})
 }
 
@@ -173,10 +180,9 @@ func instances(c cmd, conn *ec2.EC2, args []string) {
 
 func init() {
 	cmds = append(cmds, cmd{
-		"terminate",
-		"[instance-id ...]",
-		terminate,
-		flag.NewFlagSet("terminate", flag.ExitOnError),
+		name: "terminate",
+		args: "[instance-id ...]",
+		run:  terminate,
 	})
 }
 
@@ -192,10 +198,9 @@ func terminate(c cmd, conn *ec2.EC2, args []string) {
 
 func init() {
 	cmds = append(cmds, cmd{
-		"delgroup",
-		"[group ...]",
-		delgroup,
-		flag.NewFlagSet("delgroup", flag.ExitOnError),
+		name: "delgroup",
+		args: "[group ...]",
+		run:  delgroup,
 	})
 }
 
@@ -225,12 +230,12 @@ func delgroup(c cmd, conn *ec2.EC2, args []string) {
 
 func init() {
 	flags := flag.NewFlagSet("auth", flag.ExitOnError)
-	ipPermsFlags(flags)
+	addIPPermsFlags(flags)
 	cmds = append(cmds, cmd{
-		"auth",
-		"group (sourcegroup|ipaddr)...",
-		auth,
-		flags,
+		name:  "auth",
+		args:  "group (sourcegroup|ipaddr)...",
+		run:   auth,
+		flags: flags,
 	})
 }
 
@@ -254,12 +259,12 @@ func parseGroup(s string) ec2.SecurityGroup {
 
 func init() {
 	flags := flag.NewFlagSet("revoke", flag.ExitOnError)
-	ipPermsFlags(flags)
+	addIPPermsFlags(flags)
 	cmds = append(cmds, cmd{
-		"revoke",
-		"group (sourcegroup|ipaddr)...",
-		revoke,
-		flags,
+		name:  "revoke",
+		args:  "group (sourcegroup|ipaddr)...",
+		run:   revoke,
+		flags: flags,
 	})
 }
 
@@ -273,10 +278,9 @@ func revoke(c cmd, conn *ec2.EC2, args []string) {
 
 func init() {
 	cmds = append(cmds, cmd{
-		"mkgroup",
-		"name description",
-		mkgroup,
-		flag.NewFlagSet("mkgroup", flag.ExitOnError),
+		name: "mkgroup",
+		args: "name description",
+		run:  mkgroup,
 	})
 }
 
@@ -288,16 +292,64 @@ func mkgroup(c cmd, conn *ec2.EC2, args []string) {
 	check(err, "create security group")
 }
 
-var ipperms struct {
+func init() {
+	cmds = append(cmds, cmd{
+		name: "delvolume",
+		args: "[volume-id...]",
+		run:  delVolume,
+	})
+}
+
+func delVolume(c cmd, conn *ec2.EC2, args []string) {
+	run := parallel.NewRun(40)
+	for _, v := range args {
+		v := v
+		run.Do(func() error {
+			_, err := conn.DeleteVolume(v)
+			if err != nil {
+				errorf("cannot delete %q: %v", v, err)
+				return errgo.Newf("error")
+			}
+			return nil
+		})
+	}
+	if run.Wait() != nil {
+		os.Exit(1)
+	}
+}
+
+var instancesFlags struct {
+	addr  bool
+	state bool
+	all   bool
+}
+
+func addInstancesFlags(flags *flag.FlagSet) {
+	flags.BoolVar(&instancesFlags.all, "a", false, "print terminated instances too")
+	flags.BoolVar(&instancesFlags.addr, "addr", false, "print instance address")
+	flags.BoolVar(&instancesFlags.state, "state", false, "print instance state")
+}
+
+var ippermsFlags struct {
 	fromPort int
 	toPort   int
 	protocol string
 }
 
-func ipPermsFlags(flags *flag.FlagSet) {
-	flags.IntVar(&ipperms.fromPort, "from", 0, "low end of port range")
-	flags.IntVar(&ipperms.toPort, "to", 65535, "high end of port range")
-	flags.StringVar(&ipperms.protocol, "proto", "tcp", "high end of port range")
+func addIPPermsFlags(flags *flag.FlagSet) {
+	flags.IntVar(&ippermsFlags.fromPort, "from", 0, "low end of port range")
+	flags.IntVar(&ippermsFlags.toPort, "to", 65535, "high end of port range")
+	flags.StringVar(&ippermsFlags.protocol, "proto", "tcp", "high end of port range")
+}
+
+var volumesFlags struct {
+	size  bool
+	ctime bool
+}
+
+func addVolumesFlags(flags *flag.FlagSet) {
+	flags.BoolVar(&volumesFlags.size, "size", false, "show size of volume")
+	flags.BoolVar(&volumesFlags.ctime, "ctime", false, "show creation time of volume")
 }
 
 var secGroupPat = regexp.MustCompile(`^sg-[a-z0-9]+$`)
@@ -327,9 +379,9 @@ func ipPerms(args []string) (perms []ec2.IPPerm) {
 		}
 	}
 	return []ec2.IPPerm{{
-		FromPort:     ipperms.fromPort,
-		ToPort:       ipperms.toPort,
-		Protocol:     ipperms.protocol,
+		FromPort:     ippermsFlags.fromPort,
+		ToPort:       ippermsFlags.toPort,
+		Protocol:     ippermsFlags.protocol,
 		SourceGroups: groups,
 		SourceIPs:    ips,
 	}}
