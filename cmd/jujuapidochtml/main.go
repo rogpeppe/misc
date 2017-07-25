@@ -77,13 +77,17 @@ var htmlTmpl = `
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: jujuapidochtml api.json\n")
+		fmt.Fprintf(os.Stderr, "usage: jujuapidochtml api.json [role...]\n")
 		os.Exit(2)
 	}
 	flag.Parse()
 
-	if flag.NArg() != 1 {
+	if flag.NArg() < 1 {
 		flag.Usage()
+	}
+	roles := make(map[string]bool)
+	for _, role := range flag.Args()[1:] {
+		roles[role] = true
 	}
 
 	data, err := ioutil.ReadFile(flag.Arg(0))
@@ -106,6 +110,18 @@ func main() {
 	for _, f := range info.Facades {
 		if seen[f.Name] {
 			continue
+		}
+		if len(roles) > 0 {
+			found := false
+			for _, role := range f.AvailableTo {
+				if roles[role] {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		facades = append(facades, f)
 		seen[f.Name] = true

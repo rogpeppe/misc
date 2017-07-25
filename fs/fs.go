@@ -7,20 +7,26 @@ import (
 
 type FS <-chan Item
 
-// Item represents an item of filesystem data.
-// If Dir is non-nil, the item represents a directory
-// entry. If Data is non-empty, the item represents
-// a data block.
-// When an item is received, the receiver is expected
-// to send on the reply channel to indicate the
-// next thing for the sender to do.
+// Item represents an item of filesystem data. If Dir is non-nil, the
+// item represents a directory entry. If Data is non-empty, the item
+// represents a data block.
+//
+// When an item is received, the receiver is expected to send on the
+// reply channel to indicate the next thing for the sender to do.
 type Item struct {
+	// Dir holds information about a file.
+	// It is nil when sending a file's data.
 	Dir os.FileInfo
+
 	// Path holds the full path of the item, or the empty string
 	// if Dir is nil.
 	Path string
 
+	// Data holds a file's data block.
 	Data  []byte
+
+	// Answer must be used to send a reply
+	// to the item.
 	Reply chan<- Answer
 }
 

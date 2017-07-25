@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"log"
 	"time"
 
 	"golang.org/x/net/context"
@@ -111,7 +112,7 @@ func (srv *targetServiceHandler) writeError(ctx context.Context, w http.Response
 	// Mint an appropriate macaroon and send it back to the client.
 	m, err := srv.bakery.Oven.NewMacaroon(ctx, httpbakery.RequestVersion(req), time.Now().Add(5*time.Minute), derr.Caveats, derr.Ops...)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "cannot mint macaroon: %v", err)
+		fail(w, http.StatusInternalServerError, "cannot mint macaroon: %#v", err)
 		return
 	}
 
@@ -121,6 +122,7 @@ func (srv *targetServiceHandler) writeError(ctx context.Context, w http.Response
 }
 
 func fail(w http.ResponseWriter, code int, msg string, args ...interface{}) {
+	log.Printf("failing with msg %q, args %#v", msg, args)
 	http.Error(w, fmt.Sprintf(msg, args...), code)
 }
 

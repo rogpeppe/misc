@@ -33,7 +33,7 @@ var defaultHTTPClient = httpbakery.NewHTTPClient()
 
 func main() {
 	serverEndpoint := mustServe(func(endpoint string) (http.Handler, error) {
-		return targetService(endpoint, "https://api.jujucharms.com/identity")
+		return targetService(endpoint, "https://0.1.2.3")
 	})
 	client, err := newClient()
 	if err != nil {

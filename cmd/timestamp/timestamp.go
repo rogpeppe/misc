@@ -6,14 +6,14 @@
 // from standard input prefixed with a timestamp,
 // the time since the timestamp command started.
 // The first line is of the form:
-// 
+//
 // 	start 2006-01-02 15:04:05.000 -0700
-// 
+//
 // giving the absolute start time.
-// 
+//
 // If files are provided, they are read and the timestamp output in
 // the named files is merged into one time sequence.
-// 
+//
 // With a single file, file names are omitted from
 // the output.
 package main

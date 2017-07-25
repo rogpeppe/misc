@@ -16,7 +16,7 @@ var (
 	noTestDeps = flag.Bool("T", false, "exclude test dependencies")
 	all        = flag.Bool("a", false, "show all dependencies recursively")
 	std        = flag.Bool("stdlib", false, "show stdlib dependencies")
-	from = flag.Bool("from", false, "show which dependencies are introduced by which packages")
+	from       = flag.Bool("from", false, "show which dependencies are introduced by which packages")
 )
 
 var helpMessage = `

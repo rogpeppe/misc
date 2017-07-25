@@ -16,6 +16,7 @@ var setSys = flag.Bool("sys", false, "use RTC time to set system clock")
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: rtc [flags] [yyyy-mmddThh:mm:ssZ]\n")
+		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "If the time argument is specified, the RTC time will be set\n")
 	}
 	flag.Parse()
