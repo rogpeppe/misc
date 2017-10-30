@@ -1,3 +1,9 @@
+// Package diffgrep prints portions of unified diff output that matches
+// (or doesn't match) a given pattern.
+//
+// For example, to exclude all Go test files from some git diff:
+//
+//	git diff some-other-branch | diffgrep -v -f '_test\.go$'
 package main
 
 import (
@@ -14,6 +20,7 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: diffgrep regex [flags]\n")
+	fmt.Fprintf(os.Stderr, "Grep unified diff output for a pattern.\n")
 	flag.PrintDefaults()
 	os.Exit(2)
 }
