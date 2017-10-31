@@ -1,9 +1,28 @@
-// Package diffgrep prints portions of unified diff output that matches
-// (or doesn't match) a given pattern.
+// Package diffgrep prints portions of unified diff output, as produced
+// many tools including git, that match (or don't match) a given
+// pattern. If the input is a valid unified diff, the output is too.
 //
 // For example, to exclude all Go test files from some git diff:
 //
 //	git diff some-other-branch | diffgrep -v -f '_test\.go$'
+//
+// Usage:
+//
+//	diffgrep regex [flags]
+//	Grep unified diff output for a pattern.
+//	  -L	exclude whole files if they contain a match
+//	  -a	search context too
+//	  -d	search deleted content
+//	  -f	grep file names instead of content
+//	  -i	search inserted content
+//	  -l	include whole files if they contain a match
+//	  -v	invert results
+//
+// See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html
+// for details of the format.
+//
+// Credit to https://godoc.org/github.com/sourcegraph/go-diff for making it possible to
+// implement this in less than an hour.
 package main
 
 import (
