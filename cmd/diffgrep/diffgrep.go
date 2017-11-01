@@ -21,7 +21,7 @@
 // See https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html
 // for details of the format.
 //
-// Credit to https://godoc.org/github.com/sourcegraph/go-diff for making it possible to
+// Credit to https://godoc.org/sourcegraph.com/sourcegraph/go-diff/diff for making it possible to
 // implement this in less than an hour.
 package main
 
