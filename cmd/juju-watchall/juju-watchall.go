@@ -33,19 +33,18 @@ var json = struct {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "jujuwatchall [flags] [<controller>|<model>|[<controller>]:[<model>]]\n")
+		fmt.Fprintf(os.Stderr, "juju-watchall [flags] [<controller>|<model>|[<controller>]:[<model>]]\n")
 		fmt.Fprintf(os.Stderr, `
-jujuwatchall -a
-	- watches all models on the current controller
-
-jujuwatchall :modelname
+juju-watchall modelname
 	- watches the named model on the current controller.
-jujuwatchall :
+juju-watchall
 	- watches the current model on the current controller
-jujuwatchall controllername:
-	- watches all models on the named controller.
-jujuwatchall controllername:modelname
+juju-watchall controllername:modelname
 	- watches the named model on the named controller
+juju-watchall -a controllername
+	- watches all models on the named controller.
+juju-watchall -a
+	- watches all models on the current controller.
 `)
 		os.Exit(2)
 	}
