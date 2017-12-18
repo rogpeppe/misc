@@ -1,9 +1,55 @@
-// fc - floating point reverse polish notation calculator
+// Floating point reverse polish notation calculator
+//
+// Install with:
+//
+//	go get github.com/rogpeppe/misc/cmd/fc
+//
+// If you use a shell that overrides the name "fc" as a builtin, you
+// will probably want to rename the executable to some other name.
+//
+// Simple floating point calculations on the command line.
+// Each command line argument is either an operand (pushed onto the stack)
+// or an operator (pops some values off stack, pushes the result).
+//
+// After all arguments are evaluated, all remaining values on the stack
+// are printed to stdout.
+//
+// Most operators have a spelling that doesn't require shell quoting,
+// so expressions can be easily evaluated without awkward quotes.
+// Also, because it's RPN, it works great with command history - just
+// add more operands at the end of the last line to operate on the previous
+// result while keeping entire previous expression intact.
+//
+// Usage: fc -[bBoxcd] <postfix expression>
+//
+// Operand prefixes specify format of operand; available formats:
+//	decimal(default)
+//	hex(0x)
+//	octal(0)
+//	binary(0b)
+//	unicode character(@)
+//
+// Flag specifies the output format:
+//
+//	-d decimal (default).
+//	-b binary
+//	-B binary with annotated bit positions
+//	-o octal
+//	-x hexadecimal
+//	-c unicode character
+//
+// Operators are:
+//
+//     pi e nan NaN infinity Infinity inf ∞ swap dup rep ! % p * **
+//     + - / ^ _ >> shr << shl and or xor not sum acos asin atan atan2
+//     ceil cos cosh deg exp fabs floor fmod ldexp log ln log10 log2
+//     pow rad sin sinh sqrt tan tanh x xx
+package main
+
 // version 2 - rewritten -- wrtp  1/91
 // ansified, swap, rep and dup added wrtp 9/95
 // bugs, comments, etc to roger peppe (rog@ohm.york.ac.uk)
 // version 4 - Goifed, yeah!
-package main
 
 import (
 	"bytes"
@@ -142,8 +188,7 @@ var base = dec
 func usage() {
 	b := new(bytes.Buffer)
 	fmt.Fprintf(b, "Usage: fc -[bBoxcd] <postfix expression>\n")
-	fmt.Fprintf(b, "Operands are decimal(default), hex(0x), octal(0), binary(0b),\n")
-	fmt.Fprintf(b, "             char(@), time(hh:mm.ss)\n")
+	fmt.Fprintf(b, "Operands are decimal(default), hex(0x), octal(0), binary(0b),char(@)\n")
 	fmt.Fprintf(b, "Operators are:\n")
 	cols := 0
 	for _, o := range ops {
