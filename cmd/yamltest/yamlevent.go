@@ -2,6 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -15,8 +18,11 @@ import (
 	yaml "gopkg.in/yaml.v1"
 )
 
+var generate = flag.Bool("generate", false, "generate in.json files")
+
 func main() {
-	for _, f := range os.Args[1:] {
+	flag.Parse()
+	for _, f := range flag.Args() {
 		if err := check(f); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", f, err)
 		}
@@ -29,13 +35,19 @@ func check(path string) error {
 		return err
 	}
 	defer eventf.Close()
-	inYAML, err := ioutil.ReadFile(filepath.Join(path, "in.yaml"))
-	if err != nil {
-		return err
+	expectError := false
+	if _, err := os.Stat(filepath.Join(path, "error")); err == nil {
+		expectError = true
 	}
 	v, err := valueFromEvents(eventf)
 	if err != nil {
+		if expectError {
+			return nil
+		}
 		return errgo.Notef(err, "cannot make object")
+	}
+	if expectError {
+		return errgo.Newf("expected error but got success")
 	}
 	if vs, ok := v.([]interface{}); ok && len(vs) > 0 {
 		// The in.json values only include a single document.
@@ -49,6 +61,32 @@ func check(path string) error {
 	jv, err := rewriteForJSON("", v)
 	if err != nil {
 		return errgo.Notef(err, "cannot make JSON object")
+	}
+	if *generate {
+		return generateJSON(path, jv)
+	} else {
+		return checkYAML(path, jv)
+	}
+}
+
+func generateJSON(path string, jv interface{}) error {
+	buf := new(bytes.Buffer)
+	enc := json.NewEncoder(buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(jv); err != nil {
+		return errgo.Notef(err, "cannot marshal JSON")
+	}
+	if err := ioutil.WriteFile(filepath.Join(path, "in.json"), buf.Bytes(), 0666); err != nil {
+		return errgo.Mask(err)
+	}
+	return nil
+}
+
+func checkYAML(path string, jv interface{}) error {
+	inYAML, err := ioutil.ReadFile(filepath.Join(path, "in.yaml"))
+	if err != nil {
+		return errgo.Mask(err)
 	}
 	var inYAMLv interface{}
 	if err := yaml.Unmarshal(inYAML, &inYAMLv); err != nil {
@@ -216,32 +254,7 @@ func doDoc(r *eventReader) interface{} {
 	refs := make(refMap)
 	n := doNode(r, refs)
 	r.expect(-kindDoc)
-	return resolveAnchors(n, refs)
-}
-
-func resolveAnchors(n interface{}, refs refMap) interface{} {
-	switch n := n.(type) {
-	case map[interface{}]interface{}:
-		m := make(map[interface{}]interface{})
-		for k, v := range n {
-			m[resolveAnchors(k, refs)] = resolveAnchors(v, refs)
-		}
-		return m
-	case []interface{}:
-		s := make([]interface{}, len(n))
-		for i, v := range n {
-			s[i] = resolveAnchors(v, refs)
-		}
-		return s
-	case lazyAlias:
-		v, ok := refs[string(n)]
-		if !ok {
-			failf("anchor %q not found", n)
-		}
-		return v
-	default:
-		return n
-	}
+	return n
 }
 
 func doNode(r *eventReader, refs refMap) interface{} {
@@ -301,7 +314,7 @@ func doVal(r *eventReader, refs refMap) interface{} {
 	var val interface{}
 	switch e.quote {
 	case ':':
-		_, val = resolve("", e.val)
+		_, val = resolve(e.tag, e.val)
 	default:
 		val = e.val
 	}
@@ -311,14 +324,13 @@ func doVal(r *eventReader, refs refMap) interface{} {
 	return val
 }
 
-type lazyAlias string
-
 func doAlias(r *eventReader, refs refMap) interface{} {
 	e := r.read().(aliasEvent)
 	if val, ok := refs[e.anchor]; ok {
 		return val
 	}
-	return lazyAlias(e.anchor)
+	failf("reference to undefined anchor %q", e.anchor)
+	panic("unreachable")
 }
 
 type eventReader struct {
@@ -410,7 +422,7 @@ func parseEvent(s string) (event, error) {
 		}
 		if strings.HasPrefix(s, "<") {
 			e.tag, s = nextField(s)
-			e.tag = e.tag[1:]
+			e.tag = strings.TrimSuffix(e.tag[1:], ">")
 		}
 		if s != "" {
 			return nil, errgo.Newf("extra fields at end of map event %q", s0)
@@ -424,7 +436,7 @@ func parseEvent(s string) (event, error) {
 		}
 		if strings.HasPrefix(s, "<") {
 			e.tag, s = nextField(s)
-			e.tag = e.tag[1:]
+			e.tag = strings.TrimSuffix(e.tag[1:], ">")
 		}
 		if s != "" {
 			return nil, errgo.Newf("extra fields at end of sequence event %q", s0)
@@ -438,7 +450,7 @@ func parseEvent(s string) (event, error) {
 		}
 		if strings.HasPrefix(s, "<") {
 			e.tag, s = nextField(s)
-			e.tag = e.tag[1:]
+			e.tag = strings.TrimSuffix(e.tag[1:], ">")
 		}
 		if s == "" {
 			return nil, errgo.Newf("no value in value event %q", s0)
