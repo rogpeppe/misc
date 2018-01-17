@@ -1,5 +1,9 @@
 // Package sampler provides a robust way of sampling unreliable sources
-// of information, yielding best-effort results in a limited timespan.
+// of information, yielding timely best-effort results.
+//
+// Sample requests can continue to run in the background, so even
+// if a sample isn't retrieved before the deadline expires, useful
+// information can still be obtained.
 package sampler
 
 import (
@@ -7,49 +11,34 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/errgo.v1"
-	"gopkg.in/retry.v1"
-
-	"go4.org/syncutil/singleflight"
+	"golang.org/x/sync/singleflight"
 )
-
-type Getter interface {
-	// Get returns the value for the given key.
-	// If it returns an error that implements TemporaryError,
-	// the sampler will retry the Get before returning its
-	// result.
-	Get(key string) (interface{}, error)
-}
-
-var DefaultRetryStrategy retry.Strategy = retry.Exponential{
-	Initial:  100 * time.Millisecond,
-	Jitter:   true,
-	MaxDelay: time.Second,
-}
 
 // Params holds the parameters for the New function.
 type Params struct {
-	// Getter is used to acquire a value for a given key.
-	Getter Getter
+	// Get is used to acquire a value for a given key. The done
+	// channel is closed to indicate that the Get request should
+	// terminate.
+	//
+	// Note that a call the Get can last well beyond a call to
+	// Sampler.Get - Sampler.Get will leave a Get request running
+	// for up to MaxRequestDuration.
+	//
+	// Note also that Sampler.Get will not start two concurrent
+	// Get requests for the same key.
+	Get func(done <-chan struct{}, key string) (interface{}, error)
 
-	// LogError is called whenever an error is encountered.
-	LogError func(key string, err error)
-
-	// RetryStrategy is used to determine how quickly
-	// to retry after a temporary failure.
-	RetryStrategy retry.Strategy
+	// MaxRequestDuration holds the maximum amount of time a request
+	// will run for. If this is zero, a request may block forever.
+	// This may be used to stop anomalously long requests from
+	// stopping others from being started.
+	MaxRequestDuration time.Duration
 }
 
 // New returns a new Sampler using the given parameters.
 func New(p Params) *Sampler {
-	if p.LogError == nil {
-		p.LogError = func(key string, err error) {}
-	}
-	if p.RetryStrategy == nil {
-		p.RetryStrategy = DefaultRetryStrategy
-	}
-	if p.Getter == nil {
-		panic("no Getter provided")
+	if p.Get == nil {
+		panic("no Get provided")
 	}
 	return &Sampler{
 		p:      p,
@@ -65,8 +54,7 @@ type Sampler struct {
 	recent map[string]*Sample
 }
 
-// Sample holds data that was received at
-// a particular time.
+// Sample holds data that was received at a particular time.
 type Sample struct {
 	// Value holds the most recently acquired value.
 	// It will be nil if no value has yet been acquired.
@@ -94,30 +82,12 @@ type result struct {
 // returned slice will hold the result for each respective key in keys.
 // Nil elements will be returned when no data has ever been acquired for
 // an key.
+//
+// Get may be called concurrently.
 func (sampler *Sampler) Get(ctx context.Context, keys ...string) []*Sample {
 	results := make(chan result, len(keys))
 	for i, key := range keys {
-		i, key := i, key
-		go func() {
-			s := sampler.getOne(ctx, key)
-			if s != nil {
-				sampler.mu.Lock()
-				defer sampler.mu.Unlock()
-				s0 := sampler.recent[key]
-				if s.Error == nil || s0 == nil {
-					sampler.recent[key] = s
-				} else {
-					// Maintain the most recent encountered error.
-					s0.Error = s.Error
-					s0.ErrorTime = s.Time
-					s = s0
-				}
-			}
-			results <- result{
-				index:  i,
-				sample: s,
-			}
-		}()
+		go sampler.sendResult(ctx, i, key, results)
 	}
 	samples := make([]*Sample, len(keys))
 	numSamples := 0
@@ -141,35 +111,59 @@ func (sampler *Sampler) Get(ctx context.Context, keys ...string) []*Sample {
 	return samples
 }
 
-func (sampler *Sampler) getOne(ctx context.Context, key string) *Sample {
-	for a := retry.StartWithCancel(sampler.p.RetryStrategy, nil, ctx.Done()); a.Next(); {
-		sample0, err := sampler.group.Do(key, func() (interface{}, error) {
-			val, err := sampler.p.Getter.Get(key)
-			return &Sample{
-				Time:  time.Now(),
-				Value: val,
-				Error: err,
-			}, nil
-		})
-		sample := sample0.(*Sample)
-		if sample.Error == nil {
-			return sample
-		}
-		sampler.p.LogError(key, err)
-		if !isTemporary(err) || !a.More() {
-			// Don't retry on non-temporary errors
-			return sample
+func (sampler *Sampler) sendResult(ctx context.Context, index int, key string, results chan<- result) {
+	s := sampler.getOne(ctx, key)
+	if s == nil {
+		sampler.mu.Lock()
+		defer sampler.mu.Unlock()
+		s0 := sampler.recent[key]
+		if s.Error == nil || s0 == nil {
+			sampler.recent[key] = s
+		} else {
+			// Maintain the most recent encountered error.
+			s0.Error = s.Error
+			s0.ErrorTime = s.Time
+			s = s0
 		}
 	}
-	// Context was cancelled.
-	return nil
+	results <- result{
+		index:  index,
+		sample: s,
+	}
 }
 
-type TemporaryError interface {
-	Temporary() bool
-}
-
-func isTemporary(err error) bool {
-	t, ok := errgo.Cause(err).(TemporaryError)
-	return ok && t.Temporary()
+func (sampler *Sampler) getOne(ctx context.Context, key string) *Sample {
+	done := make(chan struct{})
+	defer close(done)
+	rc := sampler.group.DoChan(key, func() (interface{}, error) {
+		// TODO it might be nice to pass a context to Get so that
+		// we can cancel it when MaxRequestDuration expires,
+		// but should we create one from context.Background
+		// or derive it from ctx but with an extended deadline?
+		val, err := sampler.p.Get(done, key)
+		return &Sample{
+			Time:  time.Now(),
+			Value: val,
+			Error: err,
+		}, nil
+	})
+	var expiry <-chan time.Time
+	if sampler.p.MaxRequestDuration > 0 {
+		timer := time.NewTimer(sampler.p.MaxRequestDuration)
+		defer timer.Stop()
+		expiry = timer.C
+	}
+	select {
+	case r := <-rc:
+		return r.Val.(*Sample)
+	case <-expiry:
+		// It's possible that in between timing out and calling Forget,
+		// the sample completes and a new poll request is launched
+		// so we're not forgetting the one we thought we were, but
+		// that should only mean that we might have two concurrent requests
+		// that might both set their result values at a similar time,
+		// no biggy.
+		sampler.group.Forget(key)
+		return nil
+	}
 }
