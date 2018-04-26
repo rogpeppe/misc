@@ -11,7 +11,7 @@ import (
 	"github.com/juju/juju/jujuclient"
 	"github.com/juju/persistent-cookiejar"
 	"github.com/juju/utils"
-	"gopkg.in/macaroon-bakery.v1/httpbakery"
+	"gopkg.in/macaroon-bakery.v2-unstable/httpbakery"
 )
 
 var (
