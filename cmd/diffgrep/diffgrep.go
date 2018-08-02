@@ -126,6 +126,10 @@ func process(d *diff.FileDiff) *diff.FileDiff {
 			newHunks = append(newHunks, h)
 		}
 	}
+	if len(newHunks) == 0 {
+		// Omit files with nothing in any more.
+		return nil
+	}
 	d.Hunks = newHunks
 	return d
 }
@@ -136,6 +140,9 @@ func matchHunk(h *diff.Hunk) bool {
 	for scan.Scan() {
 		matched := false
 		line := scan.Bytes()
+		if len(line) == 0 {
+			continue
+		}
 		switch line[0] {
 		case '+':
 			matched = *iflag && pattern.Match(line[1:])
