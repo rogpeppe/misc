@@ -3,12 +3,11 @@ package httplog
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"net"
 	"net/http"
 	"sync/atomic"
 	"unicode/utf8"
-
-	"github.com/juju/errgo"
 )
 
 func Handler(logger Logger, h http.Handler) http.Handler {
@@ -66,7 +65,7 @@ type responseWriter struct {
 func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hw, ok := w.w.(http.Hijacker)
 	if !ok {
-		return nil, nil, errgo.New("hijacker not implemented")
+		return nil, nil, errors.New("hijacker not implemented")
 	}
 	w.hijacked = true
 	return hw.Hijack()
