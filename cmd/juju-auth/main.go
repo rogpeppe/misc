@@ -10,6 +10,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/jujuclient"
+	"github.com/juju/loggo"
 	cookiejar "github.com/juju/persistent-cookiejar"
 	"github.com/rogpeppe/misc/jujuconn"
 	errgo "gopkg.in/errgo.v1"
@@ -20,9 +21,11 @@ import (
 	agentV2 "gopkg.in/macaroon-bakery.v2/httpbakery/agent"
 )
 
+var debug = flag.Bool("debug", false, "print debug messages")
+
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: juju-auth [<controller>][:<model>]\n")
+		fmt.Fprintf(os.Stderr, "usage: juju-auth <controller>[:<model>]\n")
 		fmt.Fprintf(os.Stderr, "Set BAKERY_AGENT_FILE to a path to the agent auth file\n")
 		os.Exit(2)
 	}
@@ -30,11 +33,17 @@ func main() {
 	if flag.NArg() > 1 {
 		flag.Usage()
 	}
+	if *debug {
+		loggo.ConfigureLoggers("DEBUG")
+	}
 	controller := flag.Arg(0)
 	model := ""
 	cm := strings.SplitN(controller, ":", 2)
 	if len(cm) > 1 {
 		controller, model = cm[0], cm[1]
+	}
+	if controller == "" {
+		log.Fatalf("controller must be non-empty")
 	}
 	if err := jujuAuth(controller, model); err != nil {
 		fmt.Fprint(os.Stderr, "%v\n", err)
@@ -64,6 +73,7 @@ func jujuAuth(controller, model string) error {
 		if err := jar.Save(); err != nil {
 			log.Printf("cannot save cookie jar: %v", err)
 		}
+		fmt.Printf("saved authentication credentials to %s\n", jarPath)
 	}()
 	bclient := httpbakery.NewClient()
 	bclient.Jar = jar
