@@ -19,6 +19,37 @@ var (
 	initError error
 )
 
+type Params struct {
+	BakeryClient *httpbakery.Client
+}
+
+func NewContextWithParams(p Params) (*Context, error) {
+	if err := Init(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	var ctxt Context
+	if p.BakeryClient == nil {
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ctxt.jar = jar
+		p.BakeryClient = httpbakery.NewClient()
+		p.BakeryClient.Jar = jar
+		p.BakeryClient.VisitWebPage = httpbakery.OpenWebBrowser
+	}
+	dialOpts := api.DefaultDialOpts()
+	dialOpts.BakeryClient = p.BakeryClient
+	store := jujuclient.NewFileClientStore()
+	cstore, err := newCacheStore(store)
+	if err != nil {
+		return nil, errors.Annotatef(err, "cannot make store cache")
+	}
+	ctxt.store = cstore
+	ctxt.dialOpts = dialOpts
+	return &ctxt, nil
+}
+
 type Context struct {
 	store    *cacheStore
 	jar      *cookiejar.Jar
@@ -26,34 +57,18 @@ type Context struct {
 }
 
 func NewContext() (*Context, error) {
-	initialize()
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	bclient := httpbakery.NewClient()
-	bclient.Jar = jar
-	bclient.VisitWebPage = httpbakery.OpenWebBrowser
-
-	dialOpts := api.DefaultDialOpts()
-	dialOpts.BakeryClient = bclient
-	store := jujuclient.NewFileClientStore()
-	cstore, err := newCacheStore(store)
-	if err != nil {
-		return nil, errors.Annotatef(err, "cannot make store cache")
-	}
-	return &Context{
-		store:    cstore,
-		jar:      jar,
-		dialOpts: dialOpts,
-	}, nil
+	return NewContextWithParams(Params{})
 }
 
 func (ctxt *Context) Close() error {
-	return ctxt.jar.Save()
+	if ctxt.jar != nil {
+		return ctxt.jar.Save()
+	}
+	return nil
 }
 
-func initialize() error {
+// Init initializes juju global variables once only.
+func Init() error {
 	initOnce.Do(func() {
 		initError = juju.InitJujuXDGDataHome()
 	})
