@@ -164,6 +164,9 @@ func (ctxt *Context) dialer(controller, modelUUID string) (*Dialer, error) {
 	if err != nil && !errors.IsNotFound(err) {
 		return nil, errors.Annotatef(err, "cannot get account for controller %q", controller)
 	}
+	if acct == nil {
+		acct = &jujuclient.AccountDetails{}
+	}
 	return &Dialer{
 		ctxt:       ctxt,
 		controller: controller,
