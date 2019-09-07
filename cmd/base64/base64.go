@@ -46,13 +46,15 @@ With no FILE, or when FILE is -, read standard input.
 
 The data are encoded as described for both the base64 alphabets in RFC 4648.
 
-"standard" and "URL-safe") without an; in addition, "=" characters used for padd
-When decoding, the input may contain newlines in addition to the bytes of
-the formal base64 alphabet, and either encoding described y RFC 4648 ("standard" or "URL-safe") is accepted, with or without padding characters (any "=" character in the input is ignored).
+When decoding, the input may contain newlines in addition to the bytes
+of the formal base64 alphabet, and either encoding described in RFC 4648
+("standard" or "URL-safe") is accepted, with or without padding characters
+(any "=" character in the input is ignored).
 
-Use --ignore-garbage to attempt to recover
-from any other non-alphabet bytes in the encoded stream.
+Use --ignore-garbage to attempt to recover from any other non-alphabet
+bytes in the encoded stream.
 `[1:])
+		flag.PrintDefaults()
 		os.Exit(1)
 	}
 

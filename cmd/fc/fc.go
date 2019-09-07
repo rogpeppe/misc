@@ -267,7 +267,7 @@ func numToStr(v float64) string {
 	case char:
 		return fmt.Sprintf("@%c", int(v))
 	case dec:
-		return fmt.Sprintf("%g", v)
+		return formatFloat(v)
 	case bin:
 		return numToBinary(int64(v))
 	case annotbin:
@@ -279,6 +279,15 @@ func numToStr(v float64) string {
 	}
 	fatalf("unknown base %d", base)
 	panic("not reached")
+}
+
+func formatFloat(f float64) string {
+	abs := math.Abs(f)
+	fmt := byte('f')
+	if !math.IsInf(f, 0) && !math.IsNaN(f) && (abs < 1e-6 || abs >= 1e21) {
+		fmt = byte('e')
+	}
+	return strconv.FormatFloat(f, fmt, -1, 64)
 }
 
 // numToBinary returns  n as a binary number, always producing

@@ -7,11 +7,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	rdebug "runtime/debug"
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/jujuclient"
 	"github.com/juju/loggo"
 	cookiejar "github.com/juju/persistent-cookiejar"
+	"github.com/kr/pretty"
 	"github.com/rogpeppe/misc/jujuconn"
 	errgo "gopkg.in/errgo.v1"
 	"gopkg.in/macaroon-bakery.v2-unstable/bakery"
@@ -24,9 +26,13 @@ import (
 var debug = flag.Bool("debug", false, "print debug messages")
 
 func main() {
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: juju-auth <controller>[:<model>]\n")
 		fmt.Fprintf(os.Stderr, "Set BAKERY_AGENT_FILE to a path to the agent auth file\n")
+		info, _ := rdebug.ReadBuildInfo()
+		pretty.Println(info)
+		fmt.Printf("%d bytes\n", len(rdebug.DirectBuildInfo()))
 		os.Exit(2)
 	}
 	flag.Parse()

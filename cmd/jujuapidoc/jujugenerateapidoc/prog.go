@@ -8,19 +8,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/juju/juju/apiserver"
-	"github.com/juju/juju/rpc/rpcreflect"
-	"github.com/rogpeppe/apicompat/jsontypes"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
-	"golang.org/x/tools/go/loader"
-	"gopkg.in/errgo.v1"
 	"html/template"
 	"log"
 	"os"
 	"reflect"
+
+	"github.com/juju/juju/apiserver"
+	"github.com/juju/juju/rpc/rpcreflect"
+	"github.com/rogpeppe/apicompat/jsontypes"
+	"golang.org/x/tools/go/loader"
+	"gopkg.in/errgo.v1"
 
 	"github.com/juju/errors"
 	"github.com/juju/juju/apiserver/common"
@@ -28,6 +29,7 @@ import (
 	"github.com/juju/juju/permission"
 	"github.com/juju/juju/state"
 	"github.com/rogpeppe/misc/cmd/jujuapidoc/apidoc"
+	"github.com/rogpeppe/misc/runtime/debug"
 	"gopkg.in/juju/names.v2"
 )
 
@@ -283,7 +285,7 @@ func isAvailable(facadeName string, factory facade.Factory, kind entityKind) (ok
 		if err == nil {
 			return
 		}
-		// log.Printf("panic on facade %q, role %v (%v): %s", facadeName, kind, err, debug.Callers(0, 30))
+		log.Printf("panic on facade %q, role %v (%v): %s", facadeName, kind, err, debug.Callers(0, 30))
 		panicked[facadeName] = true
 		ok = true
 	}()

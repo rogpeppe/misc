@@ -43,7 +43,7 @@ func TestParse(t *testing.T) {
 	for _, test := range parseTests {
 		c.Run(test.testName, func(c *qt.C) {
 			var spec openAPISpec
-			err := spec.parse([]byte(test.data))
+			err := spec.parse("somefile", []byte(test.data))
 			if test.expectError != "" {
 				c.Assert(err, qt.ErrorMatches, test.expectError)
 				return

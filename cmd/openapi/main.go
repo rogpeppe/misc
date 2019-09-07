@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -10,18 +11,29 @@ import (
 )
 
 func main() {
-	data, err := ioutil.ReadAll(os.Stdin)
-	if err != nil {
-		log.Fatal(err)
+	log.SetFlags(0)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: openapi file...\n")
+		os.Exit(2)
+	}
+	flag.Parse()
+	if flag.NArg() < 1 {
+		flag.Usage()
 	}
 	var spec openAPISpec
-	if err := spec.parse(data); err != nil {
-		log.Fatal(err)
-	}
 	spec.Version = "3.0.0"
-	data, err = yaml.Marshal(spec)
+	for _, filename := range flag.Args() {
+		data, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := spec.parse(filename, data); err != nil {
+			log.Fatal(err)
+		}
+	}
+	data, err := yaml.Marshal(spec)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%s", data)
+	os.Stdout.Write(data)
 }

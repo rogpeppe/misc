@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"strings"
 	"unicode"
 
+	"github.com/rogpeppe/rjson"
 	errgo "gopkg.in/errgo.v1"
 )
 
@@ -23,10 +24,11 @@ type openAPISpec struct {
 	Components openAPIComponents                 `yaml:"components"`
 }
 
-func (spec *openAPISpec) parse(data []byte) error {
+func (spec *openAPISpec) parse(filename string, data []byte) error {
 	r := &reader{
-		buf: data,
-		r:   bytes.NewReader(data),
+		filename: filename,
+		buf:      data,
+		r:        bytes.NewReader(data),
 	}
 	for {
 		tok, err := r.readToken()
@@ -37,12 +39,13 @@ func (spec *openAPISpec) parse(data []byte) error {
 			return errgo.Mask(err)
 		}
 		if tok != tokenIdent {
-			return errgo.Newf("unexpected token type %v", tok)
+			return errgo.Newf("%s: unexpected token type %v", r.offsetToPos(r.tokenStart), tok)
 		}
 		k, ok := kinds[r.token]
 		if !ok {
-			return errgo.Newf("unknown token %q", r.token)
+			return errgo.Newf("%s: unknown token %q", r.offsetToPos(r.tokenStart), r.token)
 		}
+		lineStart := r.tokenStart
 		var args []string
 		var obj interface{}
 		for {
@@ -60,7 +63,7 @@ func (spec *openAPISpec) parse(data []byte) error {
 			args = append(args, r.token)
 		}
 		if err := spec.add(k, args, obj); err != nil {
-			return errgo.Mask(err)
+			return errgo.Notef(err, "%s", r.offsetToPos(lineStart))
 		}
 	}
 }
@@ -154,11 +157,13 @@ const (
 )
 
 type reader struct {
-	r       *bytes.Reader
-	buf     []byte
-	token   string
-	builder strings.Builder
-	obj     interface{}
+	r          *bytes.Reader
+	filename   string
+	buf        []byte
+	tokenStart int
+	token      string
+	builder    strings.Builder
+	obj        interface{}
 }
 
 func (r *reader) readTokenXXX() (token, error) {
@@ -181,6 +186,7 @@ func (r *reader) readToken() (token, error) {
 		return 0, err
 	}
 	r.builder.Reset()
+	r.tokenStart = r.offset()
 	for {
 		c, _, err := r.r.ReadRune()
 		if err != nil {
@@ -200,15 +206,36 @@ func (r *reader) readToken() (token, error) {
 }
 
 func (r *reader) readObject() (token, error) {
-	dec := json.NewDecoder(r.r)
-	var m interface{}
-	if err := dec.Decode(&m); err != nil {
-		return 0, err
+	startOffset := r.offset()
+	// Read all the text up until the next brace at the
+	// start of a line. This is a hack but will have to do
+	// until rjson gets proper decoder support.
+	var buf bytes.Buffer
+	var prevc rune
+	for {
+		c, _, err := r.r.ReadRune()
+		if err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
+			return 0, errgo.Mask(err)
+		}
+		buf.WriteRune(c)
+		if c == '}' && prevc == '\n' {
+			break
+		}
+		prevc = c
 	}
-	offset := len(r.buf) - r.r.Len() - dec.Buffered().(*bytes.Reader).Len()
-	r.r = bytes.NewReader(r.buf[offset:])
-	r.obj = m
-	return tokenObject, nil
+	var m interface{}
+	err := rjson.Unmarshal(buf.Bytes(), &m)
+	if err == nil {
+		r.obj = m
+		return tokenObject, nil
+	}
+	if err, ok := err.(*rjson.SyntaxError); ok {
+		return 0, errgo.Newf("%s: %v", r.offsetToPos(startOffset+int(err.Offset)), err)
+	}
+	return 0, errgo.Mask(err)
 }
 
 func (r *reader) readSpace() error {
@@ -222,4 +249,25 @@ func (r *reader) readSpace() error {
 			return nil
 		}
 	}
+}
+
+func (r *reader) offset() int {
+	return len(r.buf) - r.r.Len()
+}
+
+func (r *reader) offsetToPos(off int) string {
+	line := 1
+	start := 0
+	for i, b := range r.buf {
+		if b != '\n' {
+			continue
+		}
+		if i >= off {
+			lineOff := off - start
+			return fmt.Sprintf("%s:%d:%d", r.filename, line, lineOff)
+		}
+		line++
+		start = i
+	}
+	return fmt.Sprintf("%s:%d", r.filename, line)
 }

@@ -8,17 +8,30 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"text/template"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/kr/pretty"
 	errgo "gopkg.in/errgo.v1"
-	yaml "gopkg.in/yaml.v1"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var generate = flag.Bool("generate", false, "generate in.json files")
+var tests = flag.Bool("tests", false, "generate YAML unmarshal tests from test failures")
+
+type unmarshalTest struct {
+	Comment string
+	Data    string
+	Value   interface{}
+}
+
+var allTests []unmarshalTest
 
 func main() {
 	flag.Parse()
@@ -27,19 +40,54 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%s: %s\n", f, err)
 		}
 	}
+	if *tests && len(allTests) > 0 {
+		if err := testTemplate.Execute(os.Stdout, allTests); err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
+var testTemplate = template.Must(template.New("").Funcs(template.FuncMap{
+	"pretty": func(x interface{}) string {
+		return fmt.Sprintf("% #v", pretty.Formatter(x))
+	},
+}).Parse(`
+var unmarshalTests = []struct {
+	data string
+	value interface{}
+}{
+	{{range .}}{{if .Comment}}// {{.Comment}}
+{{end}}{
+		{{.Data | printf "%q"}},
+		{{.Value | pretty}},
+	},
+{{end}}
+}
+`))
+
 func check(path string) error {
-	eventf, err := os.Open(filepath.Join(path, "test.event"))
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("panic parsing %s", path)
+			panic(err)
+		}
+	}()
+	tmlData, err := ioutil.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer eventf.Close()
-	expectError := false
-	if _, err := os.Stat(filepath.Join(path, "error")); err == nil {
-		expectError = true
+	parts := strings.Split(string(tmlData), "\n+++ ")
+	sections := make(map[string]string)
+	for _, part := range parts[1:] {
+		i := strings.Index(part, "\n")
+		if i == -1 {
+			return errgo.Newf("invalid part %q", part)
+		}
+		sections[part[:i]] = part[i+1:]
 	}
-	v, err := valueFromEvents(eventf)
+	sections["header"] = parts[0]
+	_, expectError := sections["error"]
+	v, err := valueFromEvents(strings.NewReader(unquoteSection(sections["test-event"])))
 	if err != nil {
 		if expectError {
 			return nil
@@ -49,57 +97,133 @@ func check(path string) error {
 	if expectError {
 		return errgo.Newf("expected error but got success")
 	}
-	if vs, ok := v.([]interface{}); ok && len(vs) > 0 {
-		// The in.json values only include a single document.
-		if len(vs) > 1 {
-			return errgo.Newf("cannot represent multiple documents as JSON")
-		}
-		v = vs[0]
-	} else {
-		v = nil
+	if *generate {
+		return generateJSON(path, v, sections)
 	}
-	jv, err := rewriteForJSON("", v)
+	// go-yaml can't currently read multiple documents,
+	// so check only the first one.
+	v1 := v.([]interface{})
+	if len(v1) == 0 {
+		v = nil
+	} else {
+		v = v1[0]
+	}
+	inYAML := unquoteSection(sections["in-yaml"])
+	if err := checkYAML(path, inYAML, v); err == nil || !*tests {
+		return errgo.Mask(err)
+	}
+	allTests = append(allTests, unmarshalTest{
+		Comment: headerComment(path, sections["header"]),
+		Data:    inYAML,
+		Value:   v,
+	})
+	return nil
+}
+
+func headerComment(path, s string) string {
+	if t := strings.TrimPrefix(s, "=== "); len(t) == len(s) {
+		return ""
+	} else {
+		s = t
+	}
+	if i := strings.Index(s, "\n"); i > 0 {
+		s = s[:i]
+	}
+	testId := strings.TrimSuffix(filepath.Base(path), ".tml")
+	if testId != "" {
+		s = "yaml-test-suite " + testId + ": " + s
+	}
+	return s
+}
+
+var replacements = []struct {
+	pat, repl string
+}{
+	{`^#.*\n`, ``},
+	{`^yy .*`, ``},
+	{`^%\w.*`, ``},
+	{`^[\ \t]*$`, ``},
+	{`<SPC>`, ` `},
+	{`<TAB>`, "\t"},
+	{`^\\`, ``},
+}
+
+func unquoteSection(s string) string {
+	// Rules taken from yaml-test-suite/bin/generate.pm
+	for _, rule := range replacements {
+		re := regexp.MustCompile(`(?m)` + rule.pat)
+		s = re.ReplaceAllString(s, rule.repl)
+	}
+	return s
+}
+
+func generateJSON(path string, jv interface{}, sections map[string]string) error {
+	jv, err := rewriteForJSON("", jv)
 	if err != nil {
 		return errgo.Notef(err, "cannot make JSON object")
 	}
-	if *generate {
-		return generateJSON(path, jv)
-	} else {
-		return checkYAML(path, jv)
-	}
-}
-
-func generateJSON(path string, jv interface{}) error {
 	buf := new(bytes.Buffer)
 	enc := json.NewEncoder(buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(jv); err != nil {
-		return errgo.Notef(err, "cannot marshal JSON")
+	for _, v := range jv.([]interface{}) {
+		if err := enc.Encode(v); err != nil {
+			return errgo.Notef(err, "cannot marshal JSON")
+		}
 	}
-	if err := ioutil.WriteFile(filepath.Join(path, "in.json"), buf.Bytes(), 0666); err != nil {
+	data, err := jqize(buf.Bytes())
+	if err != nil {
+		return errgo.Mask(err)
+	}
+	sections["in-json"] = string(data)
+	var all []byte
+	for _, name := range []string{
+		"header",
+		"in-yaml",
+		"in-json",
+		"error",
+		"out-yaml",
+		"emit-yaml",
+		"test-event",
+		"lex-token",
+	} {
+		content, ok := sections[name]
+		if !ok {
+			continue
+		}
+		if name != "header" {
+			all = append(all, fmt.Sprintf("\n+++ %s\n", name)...)
+		}
+		all = append(all, content...)
+	}
+	if err := ioutil.WriteFile(path, all, 0666); err != nil {
 		return errgo.Mask(err)
 	}
 	return nil
 }
 
-func checkYAML(path string, jv interface{}) error {
-	inYAML, err := ioutil.ReadFile(filepath.Join(path, "in.yaml"))
-	if err != nil {
-		return errgo.Mask(err)
+func jqize(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	c := exec.Command("jq", ".")
+	c.Stdout = &buf
+	c.Stdin = bytes.NewReader(data)
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		return nil, errgo.Notef(err, "jq failed")
 	}
-	var inYAMLv interface{}
-	if err := yaml.Unmarshal(inYAML, &inYAMLv); err != nil {
-		return errgo.Notef(err, "cannot unmarshal YAML")
+	return buf.Bytes(), nil
+}
+
+func checkYAML(path string, inYAML string, expectv interface{}) error {
+	var yv interface{}
+	if err := yaml.Unmarshal([]byte(inYAML), &yv); err != nil {
+		return errgo.Notef(err, "cannot unmarshal YAML %q", inYAML)
 	}
-	yv, err := rewriteForJSON("", inYAMLv)
-	if err != nil {
-		return errgo.Notef(err, "cannot make JSON object from YAML")
+	diff := cmp.Diff(yv, expectv)
+	if diff == "" {
+		return nil
 	}
-	if diff := cmp.Diff(yv, jv); diff != "" {
-		return errgo.Newf("YAML differs from expected output: %v (got %v want %v)", diff, pretty.Sprint(yv), pretty.Sprint(jv))
-	}
-	return nil
+	return errgo.Newf("YAML differs from expected output: %v (got %v want %v)", diff, pretty.Sprint(yv), pretty.Sprint(expectv))
 }
 
 func valueFromEvents(r io.Reader) (v interface{}, rerr error) {
@@ -207,9 +331,9 @@ func rewriteForJSON(path string, x interface{}) (interface{}, error) {
 			case int, uint, int64, uint64, float64:
 				k1 = fmt.Sprint(k)
 			case nil:
-				k1 = ""
+				return nil, errgo.Newf("cannot use null (at %s.%v) as map key", path, k)
 			default:
-				return nil, fmt.Errorf("map key at %s.%v (type %T) is not supported", path, x, k)
+				return nil, fmt.Errorf("map key at %s.%v (type %T) is not supported", path, k, v)
 			}
 			v1, err := rewriteForJSON(path+"."+k1, v)
 			if err != nil {
@@ -298,7 +422,7 @@ func doMap(r *eventReader, refs refMap) interface{} {
 
 func doSequence(r *eventReader, refs refMap) interface{} {
 	e := r.read().(sequenceEvent)
-	var seq []interface{}
+	seq := []interface{}{}
 	for r.peek().kind() != -kindSequence {
 		seq = append(seq, doNode(r, refs))
 	}
@@ -309,8 +433,22 @@ func doSequence(r *eventReader, refs refMap) interface{} {
 	return seq
 }
 
+var acceptableTagsForGenerate = map[string]bool{
+	"":             true,
+	yaml_NULL_TAG:  true,
+	yaml_BOOL_TAG:  true,
+	yaml_STR_TAG:   true,
+	yaml_INT_TAG:   true,
+	yaml_FLOAT_TAG: true,
+	yaml_SEQ_TAG:   true,
+	yaml_MAP_TAG:   true,
+}
+
 func doVal(r *eventReader, refs refMap) interface{} {
 	e := r.read().(valEvent)
+	if *generate && !acceptableTagsForGenerate[e.tag] {
+		failf("unacceptable tag %q found", e.tag)
+	}
 	var val interface{}
 	switch e.quote {
 	case ':':

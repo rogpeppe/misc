@@ -93,19 +93,26 @@ func function(pc uintptr) []byte {
 // starting n entries above the caller of Callers, as a space-separated list
 // of filename:line-number pairs with no new lines.
 func Callers(n, max int) []byte {
+	pc := make([]uintptr, max*2)
+	pc = pc[0:runtime.Callers(0, pc)]
+	if len(pc) == 0 {
+		return nil
+	}
+	frames := runtime.CallersFrames(pc)
 	var b bytes.Buffer
 	prev := false
-	for i := 0; i < max; i++ {
-		_, file, line, ok := runtime.Caller(n + 1)
-		if !ok {
-			return b.Bytes()
+	for i := 0; i < n+max; i++ {
+		frame, more := frames.Next()
+		if i >= n {
+			if prev {
+				fmt.Fprintf(&b, " ")
+			}
+			fmt.Fprintf(&b, "%s:%d", frame.File, frame.Line)
+			prev = true
 		}
-		if prev {
-			fmt.Fprintf(&b, " ")
+		if !more {
+			break
 		}
-		fmt.Fprintf(&b, "%s:%d", file, line)
-		n++
-		prev = true
 	}
 	return b.Bytes()
 }

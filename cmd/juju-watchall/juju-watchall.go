@@ -12,13 +12,15 @@ import (
 	"github.com/juju/juju/api"
 	apicontroller "github.com/juju/juju/api/controller"
 	"github.com/juju/juju/state/multiwatcher"
+	"github.com/juju/loggo"
 	"github.com/rogpeppe/misc/jujuconn"
 	rjson "github.com/rogpeppe/rjson"
 )
 
 var (
-	allFlag  = flag.Bool("a", false, "watch all models")
-	jsonFlag = flag.Bool("j", false, "print JSON not RJSON output")
+	allFlag   = flag.Bool("a", false, "watch all models")
+	jsonFlag  = flag.Bool("j", false, "print JSON not RJSON output")
+	debugFlag = flag.Bool("debug", false, "run in debug mode")
 )
 
 var json = struct {
@@ -53,6 +55,9 @@ juju-watchall -a
 		json.MarshalIndent = stdjson.MarshalIndent
 		json.Marshal = stdjson.Marshal
 		json.Unmarshal = stdjson.Unmarshal
+	}
+	if *debugFlag {
+		loggo.ConfigureLoggers("TRACE")
 	}
 	controllerName, modelName := "", ""
 	if flag.NArg() > 0 {

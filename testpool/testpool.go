@@ -1,3 +1,5 @@
+// Package testpool provides a way of sharing resources between
+// independent parallel tests
 package testpool
 
 import (
@@ -6,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestPool represents a pool of items, usually all of the
+// Pool represents a pool of items, usually all of the
 // same type, that can be shared between tests.
-type TestPool struct {
+type Pool struct {
 	// get is used to acquire items for the pool.
 	get func(arg interface{}) (io.Closer, error)
 
@@ -16,10 +18,10 @@ type TestPool struct {
 	items map[interface{}]*poolItem
 }
 
-// PoolItem holds an item from a TestPool.
+// Item holds an item from a Pool.
 // Its methods may not be called concurrently,
 // and it must be closed after use.
-type PoolItem struct {
+type Item struct {
 	*poolItem
 }
 
@@ -27,8 +29,8 @@ type poolItem struct {
 	// key holds the item's key so it can be deleted from the pool.
 	key interface{}
 
-	// pool holds the TestPool that the item came from.
-	pool *TestPool
+	// pool holds the Pool that the item came from.
+	pool *Pool
 
 	// ready is closed when the value is made available
 	// or when there's an error obtaining the value.
@@ -45,10 +47,10 @@ type poolItem struct {
 	refCount int
 }
 
-// NewTestPool returns a TestPool that acquires items by
+// NewPool returns a Pool that acquires items by
 // calling the given get function.
-func NewTestPool(get func(arg interface{}) (io.Closer, error)) *TestPool {
-	return &TestPool{
+func NewPool(get func(arg interface{}) (io.Closer, error)) *Pool {
+	return &Pool{
 		get:   get,
 		items: make(map[interface{}]*poolItem),
 	}
@@ -57,7 +59,7 @@ func NewTestPool(get func(arg interface{}) (io.Closer, error)) *TestPool {
 // Get returns an item from the pool acquired by calling the get
 // function with the given arg. This call does not block;
 // the actual value can be retrieved later by calling Val.
-func (p *TestPool) Get(arg interface{}) *PoolItem {
+func (p *Pool) Get(arg interface{}) *Item {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	item := p.items[arg]
@@ -74,12 +76,12 @@ func (p *TestPool) Get(arg interface{}) *PoolItem {
 		}()
 	}
 	item.refCount++
-	return &PoolItem{item}
+	return &Item{item}
 }
 
 // Val returns the actual value as returned by the
-// get parameter to NewTestPool.
-func (i *PoolItem) Val(t *testing.T) interface{} {
+// get parameter to NewPool.
+func (i *Item) Val(t *testing.T) interface{} {
 	t.Helper()
 	<-i.ready
 	if i.err != nil {
@@ -90,19 +92,19 @@ func (i *PoolItem) Val(t *testing.T) interface{} {
 
 // Clone returns a copy of i that can be used
 // independently, and must be closed after use.
-func (i *PoolItem) Clone() *PoolItem {
+func (i *Item) Clone() *Item {
 	i.pool.mu.Lock()
 	i.refCount++
 	i.pool.mu.Unlock()
-	return &PoolItem{i.poolItem}
+	return &Item{i.poolItem}
 }
 
 // Close closes the item. Closing the last reference
 // to an item with a given value will close the underlying
-// value returned from the get function passed to NewTestPool.
-func (i *PoolItem) Close() error {
+// value returned from the get function passed to NewPool.
+func (i *Item) Close() error {
 	if i.poolItem == nil {
-		panic("PoolItem closed twice")
+		panic("Item closed twice")
 	}
 	i.pool.mu.Lock()
 	if i.refCount--; i.refCount > 0 {
