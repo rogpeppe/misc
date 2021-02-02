@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	data1, err := json.Marshal(x)
+	data1, err := json.MarshalIndent(x, "", "  ")
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -93,9 +93,7 @@ func decodeBase64() error {
 		defer r1.Close()
 		r = r1
 	}
-	save, _ := os.Create("/tmp/ppp")
-	defer save.Close()
-	dr := base64.NewDecoder(base64.RawStdEncoding, io.TeeReader(translateReader{r}, save))
+	dr := base64.NewDecoder(base64.RawStdEncoding, translateReader{r})
 	if _, err := io.Copy(os.Stdout, dr); err != nil {
 		return err
 	}
