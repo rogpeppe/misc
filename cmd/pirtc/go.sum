@@ -1,0 +1,4 @@
+github.com/rogpeppe/misc/ds1307 v0.0.0-20220127131711-37e4b992f215 h1:v0r+S8Xbr0/6rtOToBSQu4cYauw72atChyBD/m3T4uM=
+github.com/rogpeppe/misc/ds1307 v0.0.0-20220127131711-37e4b992f215/go.mod h1:msbDAO4SHsFYvz05tub/c6AJuwlGu0Y2kWPz4RxdU/A=
+golang.org/x/exp v0.0.0-20220126164734-073fb1339172 h1:We6p8ix5lpD7e2yrdxZOMS13hr6xvI6QQr46gZxX6rE=
+golang.org/x/exp v0.0.0-20220126164734-073fb1339172/go.mod h1:M50CtfS+xv2iy/epuEazynj250ScQ0/DOjcsin9UE8k=
