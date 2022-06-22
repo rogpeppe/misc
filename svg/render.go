@@ -1,7 +1,7 @@
 package svg
 
 /*
-#cgo pkg-config: --cflags --libs librsvg-2.0 cairo-pdf
+#cgo pkg-config: librsvg-2.0 cairo-pdf
 #include <librsvg/rsvg.h>
 
 static void
@@ -9,14 +9,6 @@ sizeCallback(int *width, int *height, gpointer data) {
 	RsvgDimensionData *size = data;
 	*width = size->width;
 	*height = size->height;
-}
-
-static void
-setOutputSize(RsvgHandle *handle, RsvgDimensionData *size) {
-	// TODO do not use this deprecated function - use
-	// cairo matrix instead, as suggested in:
-	// https://developer.gnome.org/rsvg/stable/RsvgHandle.html#rsvg-handle-set-size-callback
-	rsvg_handle_set_size_callback(handle, sizeCallback, size, 0);
 }
 */
 import "C"
@@ -45,11 +37,6 @@ func Render(svg io.Reader, size image.Point) (*image.RGBA, error) {
 	if gerr != nil {
 		return nil, fmt.Errorf("cannot make new handle: %s", C.GoString((*C.char)(unsafe.Pointer(gerr.message))))
 	}
-	dimSize := C.RsvgDimensionData{
-		width:  C.int(size.X),
-		height: C.int(size.Y),
-	}
-	C.setOutputSize(handle, &dimSize)
 
 	surface := C.cairo_image_surface_create(C.CAIRO_FORMAT_ARGB32, C.int(size.X), C.int(size.Y))
 	cr := C.cairo_create(surface)
