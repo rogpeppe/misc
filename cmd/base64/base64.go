@@ -1,3 +1,7 @@
+// Command base64 is a drop-in replacement for the GNU
+// base64 command that allows any encoding variant
+// supported by Go (URL, standard, with or without padding)
+// when reading and writing.
 package main
 
 import (
